@@ -12,6 +12,7 @@ import { BukuLaporanModal } from './components/BukuLaporanModal';
 import { KemaskiniPukalModal } from './components/KemaskiniPukalModal';
 import { ImportMuridModal } from './components/ImportMuridModal';
 import { SenaraiMuridUnitModal } from './components/SenaraiMuridUnitModal';
+import { SupabaseModal } from './components/SupabaseModal';
 import { 
   UnitKokurikulum, 
   RekodKokurikulum, 
@@ -23,6 +24,9 @@ import {
   getStoredUnits, 
   getStoredRecords, 
   getStoredStudents,
+  saveStoredRecords,
+  saveStoredStudents,
+  saveStoredUnits,
   addStoredRecord, 
   updateStoredRecord, 
   deleteStoredRecord, 
@@ -33,6 +37,16 @@ import {
   importStudentsForUnit,
   resetToDemoData 
 } from './utils/storage';
+import { 
+  fetchRecordsFromSupabase, 
+  fetchStudentsFromSupabase, 
+  fetchUnitsFromSupabase,
+  syncRecordToSupabase, 
+  deleteRecordFromSupabase,
+  syncStudentToSupabase,
+  deleteStudentFromSupabase,
+  syncUnitToSupabase
+} from './services/supabase';
 
 export default function App() {
   const [units, setUnits] = useState<UnitKokurikulum[]>([]);
@@ -46,6 +60,7 @@ export default function App() {
   const [activeOPRRecord, setActiveOPRRecord] = useState<RekodKokurikulum | null>(null);
   const [showBukuLaporan, setShowBukuLaporan] = useState<boolean>(false);
   const [showKemaskiniPukal, setShowKemaskiniPukal] = useState<boolean>(false);
+  const [showSupabaseModal, setShowSupabaseModal] = useState<boolean>(false);
   
   // Import & Senarai Murid Modals
   const [showImportMurid, setShowImportMurid] = useState<boolean>(false);
@@ -56,7 +71,7 @@ export default function App() {
   const [targetUnitFilter, setTargetUnitFilter] = useState<string | undefined>(undefined);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Load from storage on mount
+  // Load from local storage immediately, then check Supabase Cloud
   useEffect(() => {
     const loadedUnits = getStoredUnits();
     const loadedRecords = getStoredRecords();
@@ -64,6 +79,36 @@ export default function App() {
     setUnits(loadedUnits);
     setRecords(loadedRecords);
     setStudents(loadedStudents);
+
+    // Ambil data dari Supabase jika ada data yang dikongsi oleh guru lain
+    const loadFromCloud = async () => {
+      try {
+        const [cloudRecords, cloudStudents, cloudUnits] = await Promise.all([
+          fetchRecordsFromSupabase(),
+          fetchStudentsFromSupabase(),
+          fetchUnitsFromSupabase(),
+        ]);
+
+        if (cloudUnits && cloudUnits.length >= 30) {
+          setUnits(cloudUnits);
+          saveStoredUnits(cloudUnits);
+        }
+
+        if (cloudRecords && cloudRecords.length > 0) {
+          setRecords(cloudRecords);
+          saveStoredRecords(cloudRecords);
+        }
+
+        if (cloudStudents && cloudStudents.length > 0) {
+          setStudents(cloudStudents);
+          saveStoredStudents(cloudStudents);
+        }
+      } catch (err) {
+        console.warn('Perhatian sambungan Supabase:', err);
+      }
+    };
+
+    loadFromCloud();
   }, []);
 
   const showToast = (msg: string) => {
@@ -85,6 +130,12 @@ export default function App() {
       setRecords(updated);
       showToast(`Rekod "${recordToSave.tajukAktiviti}" berjaya disimpan ke dalam sistem.`);
     }
+
+    // Segerak ke Supabase Cloud di latar belakang
+    syncRecordToSupabase(recordToSave).catch((err) => {
+      console.warn('Sync Supabase Rekod tertunda:', err);
+    });
+
     setActiveTab('laporan');
     setTargetUnitForAdd(undefined);
   };
@@ -93,6 +144,9 @@ export default function App() {
   const handleDeleteRecord = (id: string) => {
     const updated = deleteStoredRecord(id);
     setRecords(updated);
+    deleteRecordFromSupabase(id).catch((err) => {
+      console.warn('Padam Supabase Rekod tertunda:', err);
+    });
     showToast('Rekod aktiviti berjaya dipadamkan.');
   };
 
@@ -107,6 +161,9 @@ export default function App() {
   const handleAddUnit = (newUnit: UnitKokurikulum) => {
     const updated = addStoredUnit(newUnit);
     setUnits(updated);
+    syncUnitToSupabase(newUnit).catch((err) => {
+      console.warn('Sync Supabase Unit tertunda:', err);
+    });
     showToast(`Unit "${newUnit.nama}" berjaya didaftarkan di SMK Madai.`);
   };
 
@@ -131,6 +188,9 @@ export default function App() {
     setStudents(updated);
     const updatedUnits = getStoredUnits();
     setUnits(updatedUnits);
+    syncStudentToSupabase(student).catch((err) => {
+      console.warn('Sync Supabase Murid tertunda:', err);
+    });
     showToast(`Murid "${student.namaMurid}" berjaya didaftarkan.`);
   };
 
@@ -140,6 +200,9 @@ export default function App() {
     setStudents(updated);
     const updatedUnits = getStoredUnits();
     setUnits(updatedUnits);
+    deleteStudentFromSupabase(studentId).catch((err) => {
+      console.warn('Padam Supabase Murid tertunda:', err);
+    });
     showToast('Rekod murid berjaya dipadamkan.');
   };
 
@@ -189,6 +252,7 @@ export default function App() {
           setTargetUnitForImport(undefined);
           setShowImportMurid(true);
         }}
+        onOpenSupabaseModal={() => setShowSupabaseModal(true)}
         userRole={userRole}
         setUserRole={setUserRole}
       />
@@ -353,6 +417,18 @@ export default function App() {
           }}
         />
       )}
+
+      {/* MODAL 6: Pangkalan Data Supabase Cloud */}
+      <SupabaseModal
+        isOpen={showSupabaseModal}
+        onClose={() => setShowSupabaseModal(false)}
+        records={records}
+        students={students}
+        units={units}
+        onSyncComplete={() => {
+          showToast('Penyegerakan ke Supabase Cloud berjaya!');
+        }}
+      />
 
       {/* Footer Aplikasi */}
       <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500 no-print">

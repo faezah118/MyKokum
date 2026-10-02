@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Award, BookOpen, Layers, ShieldCheck, RefreshCw, FileText, UserPlus, School } from 'lucide-react';
+import { Award, BookOpen, Layers, ShieldCheck, RefreshCw, FileText, UserPlus, School, Database } from 'lucide-react';
 import { RekodKokurikulum, UnitKokurikulum } from '../types';
 import { ConfirmActionModal } from './ConfirmActionModal';
 
@@ -9,6 +9,7 @@ interface HeaderProps {
   onOpenBukuLaporan: () => void;
   onResetData: () => void;
   onOpenImportMurid?: () => void;
+  onOpenSupabaseModal?: () => void;
   userRole: 'penyelaras' | 'setiausaha';
   setUserRole: (role: 'penyelaras' | 'setiausaha') => void;
 }
@@ -19,6 +20,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenBukuLaporan,
   onResetData,
   onOpenImportMurid,
+  onOpenSupabaseModal,
   userRole,
   setUserRole,
 }) => {
@@ -131,6 +133,19 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden sm:inline">Buku Laporan 2026</span>
               <span className="sm:hidden">Buku 2026</span>
             </button>
+
+            {/* Supabase Cloud Database Button */}
+            {onOpenSupabaseModal && (
+              <button
+                type="button"
+                onClick={onOpenSupabaseModal}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold border border-emerald-300 ring-1 ring-emerald-200 transition-colors"
+                title="Pangkalan Data Supabase Cloud SMK Madai"
+              >
+                <Database className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Supabase</span>
+              </button>
+            )}
 
             {/* Demo Reset Button */}
             <button
