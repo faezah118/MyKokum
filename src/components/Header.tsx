@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { Award, BookOpen, Layers, ShieldCheck, RefreshCw, FileText, UserPlus, School, Cloud, CloudCheck } from 'lucide-react';
+import { Award, BookOpen, Layers, ShieldCheck, RefreshCw, FileText, UserPlus, School } from 'lucide-react';
 import { RekodKokurikulum, UnitKokurikulum } from '../types';
 import { ConfirmActionModal } from './ConfirmActionModal';
-import { isFirebaseConfigured } from '../services/firebase';
 
 interface HeaderProps {
   records: RekodKokurikulum[];
@@ -10,7 +9,6 @@ interface HeaderProps {
   onOpenBukuLaporan: () => void;
   onResetData: () => void;
   onOpenImportMurid?: () => void;
-  onOpenFirebaseModal?: () => void;
   userRole: 'penyelaras' | 'setiausaha';
   setUserRole: (role: 'penyelaras' | 'setiausaha') => void;
 }
@@ -21,12 +19,10 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenBukuLaporan,
   onResetData,
   onOpenImportMurid,
-  onOpenFirebaseModal,
   userRole,
   setUserRole,
 }) => {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const isFirebaseActive = isFirebaseConfigured();
   const completedCount = records.filter((r) => r.status === 'Selesai').length;
   const needUpdateCount = records.filter((r) => r.status === 'Perlu Kemaskini').length;
 
@@ -135,32 +131,6 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden sm:inline">Buku Laporan 2026</span>
               <span className="sm:hidden">Buku 2026</span>
             </button>
-
-            {/* Cloud Firestore Status / Settings Button */}
-            {onOpenFirebaseModal && (
-              <button
-                type="button"
-                onClick={onOpenFirebaseModal}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                  isFirebaseActive
-                    ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 ring-1 ring-amber-200'
-                    : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                }`}
-                title="Konfigurasi Firebase Cloud Firestore"
-              >
-                {isFirebaseActive ? (
-                  <>
-                    <CloudCheck className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Firebase Aktif</span>
-                  </>
-                ) : (
-                  <>
-                    <Cloud className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Firebase</span>
-                  </>
-                )}
-              </button>
-            )}
 
             {/* Demo Reset Button */}
             <button

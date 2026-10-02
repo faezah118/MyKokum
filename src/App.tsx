@@ -12,7 +12,6 @@ import { BukuLaporanModal } from './components/BukuLaporanModal';
 import { KemaskiniPukalModal } from './components/KemaskiniPukalModal';
 import { ImportMuridModal } from './components/ImportMuridModal';
 import { SenaraiMuridUnitModal } from './components/SenaraiMuridUnitModal';
-import { FirebaseModal } from './components/FirebaseModal';
 import { 
   UnitKokurikulum, 
   RekodKokurikulum, 
@@ -34,15 +33,6 @@ import {
   importStudentsForUnit,
   resetToDemoData 
 } from './utils/storage';
-import { 
-  syncRecordToFirestore, 
-  deleteRecordFromFirestore,
-  syncStudentToFirestore,
-  deleteStudentFromFirestore,
-  listenToRecordsFromFirestore,
-  listenToStudentsFromFirestore,
-  isFirebaseConfigured
-} from './services/firebase';
 
 export default function App() {
   const [units, setUnits] = useState<UnitKokurikulum[]>([]);
@@ -56,7 +46,6 @@ export default function App() {
   const [activeOPRRecord, setActiveOPRRecord] = useState<RekodKokurikulum | null>(null);
   const [showBukuLaporan, setShowBukuLaporan] = useState<boolean>(false);
   const [showKemaskiniPukal, setShowKemaskiniPukal] = useState<boolean>(false);
-  const [showFirebaseModal, setShowFirebaseModal] = useState<boolean>(false);
   
   // Import & Senarai Murid Modals
   const [showImportMurid, setShowImportMurid] = useState<boolean>(false);
@@ -75,26 +64,6 @@ export default function App() {
     setUnits(loadedUnits);
     setRecords(loadedRecords);
     setStudents(loadedStudents);
-
-    // Sekiranya Firebase dikonfigurasi, mulakan pendengar Firestore real-time
-    if (isFirebaseConfigured()) {
-      const unsubRecords = listenToRecordsFromFirestore((cloudRecords) => {
-        if (cloudRecords && cloudRecords.length > 0) {
-          setRecords(cloudRecords);
-        }
-      });
-
-      const unsubStudents = listenToStudentsFromFirestore((cloudStudents) => {
-        if (cloudStudents && cloudStudents.length > 0) {
-          setStudents(cloudStudents);
-        }
-      });
-
-      return () => {
-        unsubRecords();
-        unsubStudents();
-      };
-    }
   }, []);
 
   const showToast = (msg: string) => {
@@ -116,10 +85,6 @@ export default function App() {
       setRecords(updated);
       showToast(`Rekod "${recordToSave.tajukAktiviti}" berjaya disimpan ke dalam sistem.`);
     }
-    // Segerak ke Cloud Firestore jika aktif
-    syncRecordToFirestore(recordToSave).catch((err) => {
-      console.warn('Sync Firestore Rekod tertunda:', err);
-    });
     setActiveTab('laporan');
     setTargetUnitForAdd(undefined);
   };
@@ -128,9 +93,6 @@ export default function App() {
   const handleDeleteRecord = (id: string) => {
     const updated = deleteStoredRecord(id);
     setRecords(updated);
-    deleteRecordFromFirestore(id).catch((err) => {
-      console.warn('Padam Firestore Rekod tertunda:', err);
-    });
     showToast('Rekod aktiviti berjaya dipadamkan.');
   };
 
@@ -169,9 +131,6 @@ export default function App() {
     setStudents(updated);
     const updatedUnits = getStoredUnits();
     setUnits(updatedUnits);
-    syncStudentToFirestore(student).catch((err) => {
-      console.warn('Sync Firestore Murid tertunda:', err);
-    });
     showToast(`Murid "${student.namaMurid}" berjaya didaftarkan.`);
   };
 
@@ -181,9 +140,6 @@ export default function App() {
     setStudents(updated);
     const updatedUnits = getStoredUnits();
     setUnits(updatedUnits);
-    deleteStudentFromFirestore(studentId).catch((err) => {
-      console.warn('Padam Firestore Murid tertunda:', err);
-    });
     showToast('Rekod murid berjaya dipadamkan.');
   };
 
@@ -233,7 +189,6 @@ export default function App() {
           setTargetUnitForImport(undefined);
           setShowImportMurid(true);
         }}
-        onOpenFirebaseModal={() => setShowFirebaseModal(true)}
         userRole={userRole}
         setUserRole={setUserRole}
       />
@@ -398,18 +353,6 @@ export default function App() {
           }}
         />
       )}
-
-      {/* MODAL 6: Konfigurasi Firebase Cloud Firestore */}
-      <FirebaseModal
-        isOpen={showFirebaseModal}
-        onClose={() => setShowFirebaseModal(false)}
-        records={records}
-        students={students}
-        units={units}
-        onSyncComplete={() => {
-          showToast('Penyegerakan semua data ke Cloud Firestore berjaya!');
-        }}
-      />
 
       {/* Footer Aplikasi */}
       <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500 no-print">
