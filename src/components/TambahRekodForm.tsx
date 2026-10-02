@@ -220,13 +220,21 @@ export const TambahRekodForm: React.FC<TambahRekodFormProps> = ({
   const [copiedStorageSql, setCopiedStorageSql] = useState<boolean>(false);
 
   const copyStorageSql = () => {
-    const sql = `-- 1. Benarkan capaian baca fail dalam bucket gambarpic
+    const sql = `-- 1. Cipta bucket 'gambarpic' sebagai Public Bucket
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('gambarpic', 'gambarpic', true) 
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+-- 2. Benarkan capaian baca fail dalam bucket gambarpic
+DROP POLICY IF EXISTS "Public Read gambarpic" ON storage.objects;
 CREATE POLICY "Public Read gambarpic" ON storage.objects FOR SELECT TO public USING (bucket_id = 'gambarpic');
 
--- 2. Benarkan muat naik gambar ke dalam bucket gambarpic
+-- 3. Benarkan muat naik gambar ke dalam bucket gambarpic
+DROP POLICY IF EXISTS "Public Upload gambarpic" ON storage.objects;
 CREATE POLICY "Public Upload gambarpic" ON storage.objects FOR INSERT TO public WITH CHECK (bucket_id = 'gambarpic');
 
--- 3. Benarkan kemaskini gambar dalam bucket gambarpic
+-- 4. Benarkan kemaskini gambar dalam bucket gambarpic
+DROP POLICY IF EXISTS "Public Update gambarpic" ON storage.objects;
 CREATE POLICY "Public Update gambarpic" ON storage.objects FOR UPDATE TO public USING (bucket_id = 'gambarpic');`;
     navigator.clipboard.writeText(sql);
     setCopiedStorageSql(true);
