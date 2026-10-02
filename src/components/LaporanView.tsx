@@ -150,16 +150,22 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
       {/* 1. TOP HEADER & MAIN ACTION BUTTONS */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 flex-wrap">
             <h2 className="text-xl font-bold text-slate-900 tracking-tight">
               Laporan Aktiviti Kokurikulum 2026
             </h2>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
-              {filteredRecords.length} daripada {records.length} Rekod
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              <span>Pangkalan Data: {records.length} Rekod</span>
             </span>
+            {isFilterActive && (
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                {filteredRecords.length} Ditapis
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Pantau perjumpaan kokurikulum, kemaskini maklumat, dan cetak Laporan Satu Muka Surat (OPR) dengan mudah.
+            Paparan laporan rasmi aktiviti kokurikulum SMK Madai yang tersimpan dalam pangkalan data.
           </p>
         </div>
 
@@ -350,12 +356,12 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
             <FileText className="w-6 h-6" />
           </div>
           <h3 className="text-base font-bold text-slate-800">
-            Tiada Rekod Dijumpai
+            {isFilterActive ? 'Tiada Rekod Dijumpai' : 'Pangkalan Data Belum Mempunyai Rekod'}
           </h3>
           <p className="text-xs text-slate-500 leading-relaxed">
             {isFilterActive
               ? 'Tiada rekod yang memenuhi kriteria carian atau penapis anda. Cuba ubah atau kosongkan penapis.'
-              : 'Belum ada rekod aktiviti kokurikulum didaftarkan. Klik butang di bawah untuk menambah rekod baharu.'}
+              : 'Pangkalan data anda belum mempunyai sebarang rekod aktiviti kokurikulum. Hanya maklumat yang disimpan dalam pangkalan data akan dipaparkan di sini. Klik butang di bawah untuk menambah rekod baharu.'}
           </p>
           <div className="pt-2 flex justify-center gap-2">
             {isFilterActive ? (

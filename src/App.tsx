@@ -80,7 +80,7 @@ export default function App() {
     setRecords(loadedRecords);
     setStudents(loadedStudents);
 
-    // Ambil data dari Supabase jika ada data yang dikongsi oleh guru lain
+    // Ambil data sahih dari Supabase Database (Hanya paparkan rekod dari database)
     const loadFromCloud = async () => {
       try {
         const [cloudRecords, cloudStudents, cloudUnits] = await Promise.all([
@@ -94,7 +94,8 @@ export default function App() {
           saveStoredUnits(cloudUnits);
         }
 
-        if (cloudRecords && cloudRecords.length > 0) {
+        // Hanya paparkan rekod yang benar-benar wujud dalam pangkalan data
+        if (cloudRecords !== null) {
           setRecords(cloudRecords);
           saveStoredRecords(cloudRecords);
         }

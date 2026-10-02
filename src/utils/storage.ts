@@ -3,7 +3,7 @@ import { INITIAL_UNITS, INITIAL_RECORDS, INITIAL_STUDENTS } from '../data/initia
 
 const STORAGE_KEYS = {
   UNITS: 'mykokum_units_smk_madai_2026_v3',
-  RECORDS: 'mykokum_records_smk_madai_2026_v3',
+  RECORDS: 'mykokum_records_from_database_v4',
   STUDENTS: 'mykokum_students_smk_madai_2026_v3',
   INITIALIZED_V3: 'mykokum_init_smk_madai_v3',
 };
@@ -181,24 +181,22 @@ const syncUnitsMemberCount = (students: MuridUnit[]) => {
 };
 
 // ==========================================
-// PENGURUSAN REKOD AKTIVITI
+// PENGURUSAN REKOD AKTIVITI (HANYA DARI DATABASE)
 // ==========================================
 export const getStoredRecords = (): RekodKokurikulum[] => {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.RECORDS);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEYS.RECORDS, JSON.stringify(INITIAL_RECORDS));
-      return INITIAL_RECORDS;
+      return [];
     }
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      localStorage.setItem(STORAGE_KEYS.RECORDS, JSON.stringify(INITIAL_RECORDS));
-      return INITIAL_RECORDS;
+    if (!Array.isArray(parsed)) {
+      return [];
     }
     return parsed;
   } catch (err) {
     console.error('Ralat membaca rekod dari localStorage:', err);
-    return INITIAL_RECORDS;
+    return [];
   }
 };
 
