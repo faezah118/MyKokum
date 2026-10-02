@@ -24,7 +24,8 @@ import {
   Square,
   CheckCircle2,
   RefreshCw,
-  ExternalLink
+  ExternalLink,
+  Copy
 } from 'lucide-react';
 import { 
   RekodKokurikulum, 
@@ -215,6 +216,22 @@ export const TambahRekodForm: React.FC<TambahRekodFormProps> = ({
   const [slot1Source, setSlot1Source] = useState<'supabase' | 'local' | null>(null);
   const [slot2Source, setSlot2Source] = useState<'supabase' | 'local' | null>(null);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+  const [storageRlsError, setStorageRlsError] = useState<boolean>(false);
+  const [copiedStorageSql, setCopiedStorageSql] = useState<boolean>(false);
+
+  const copyStorageSql = () => {
+    const sql = `-- 1. Benarkan capaian baca fail dalam bucket gambarpic
+CREATE POLICY "Public Read gambarpic" ON storage.objects FOR SELECT TO public USING (bucket_id = 'gambarpic');
+
+-- 2. Benarkan muat naik gambar ke dalam bucket gambarpic
+CREATE POLICY "Public Upload gambarpic" ON storage.objects FOR INSERT TO public WITH CHECK (bucket_id = 'gambarpic');
+
+-- 3. Benarkan kemaskini gambar dalam bucket gambarpic
+CREATE POLICY "Public Update gambarpic" ON storage.objects FOR UPDATE TO public USING (bucket_id = 'gambarpic');`;
+    navigator.clipboard.writeText(sql);
+    setCopiedStorageSql(true);
+    setTimeout(() => setCopiedStorageSql(false), 3000);
+  };
 
   // Status & Maklumat Pelapor
   const [namaPelapor, setNamaPelapor] = useState<string>('');
@@ -505,6 +522,7 @@ export const TambahRekodForm: React.FC<TambahRekodFormProps> = ({
         } else {
           setSlot2Source('local');
         }
+        setStorageRlsError(true);
         console.warn(`Muat naik ke Supabase bucket gambarpic memerlukan polisi:`, uploadRes.error);
       }
     } catch (err) {
@@ -1212,6 +1230,50 @@ export const TambahRekodForm: React.FC<TambahRekodFormProps> = ({
               <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2 animate-fadeIn">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span className="font-semibold">{uploadNotice}</span>
+              </div>
+            )}
+
+            {/* Peringatan Polisi Keselamatan (RLS) Supabase Storage */}
+            {storageRlsError && (
+              <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <h5 className="font-bold text-amber-900">Perhatian: Polisi Keselamatan (RLS) Bucket "gambarpic" Diperlukan</h5>
+                      <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
+                        Supabase menyekat muat naik fail kerana bucket <code className="font-bold bg-amber-100 px-1 rounded">gambarpic</code> belum mempunyai Polisi Row-Level Security (RLS) untuk akses muat naik awam. Sila salin skrip SQL di bawah dan jalankan di Supabase SQL Editor.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setStorageRlsError(false)}
+                    className="text-amber-500 hover:text-amber-800 p-1"
+                    title="Tutup"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 pt-1 pl-7">
+                  <button
+                    type="button"
+                    onClick={copyStorageSql}
+                    className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>{copiedStorageSql ? 'Berjaya Disalin!' : 'Salin Skrip Polisi SQL'}</span>
+                  </button>
+                  <a
+                    href="https://supabase.com/dashboard/project/tyidfdplrirkfpjmnjoz/sql/new"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1.5 rounded-lg bg-white border border-amber-300 text-amber-900 hover:bg-amber-100 font-semibold text-xs flex items-center gap-1.5 transition-colors"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Buka Supabase SQL Editor</span>
+                  </a>
+                </div>
               </div>
             )}
 
