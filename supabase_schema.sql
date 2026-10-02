@@ -74,3 +74,18 @@ CREATE POLICY "Akses Penuh Students" ON students FOR ALL USING (true) WITH CHECK
 
 DROP POLICY IF EXISTS "Akses Penuh Records" ON records;
 CREATE POLICY "Akses Penuh Records" ON records FOR ALL USING (true) WITH CHECK (true);
+
+-- 5. Bucket Storan Gambar (gambarpic) & Polisi Akses
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('gambarpic', 'gambarpic', true) 
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+DROP POLICY IF EXISTS "Public Read gambarpic" ON storage.objects;
+CREATE POLICY "Public Read gambarpic" ON storage.objects FOR SELECT USING (bucket_id = 'gambarpic');
+
+DROP POLICY IF EXISTS "Public Upload gambarpic" ON storage.objects;
+CREATE POLICY "Public Upload gambarpic" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'gambarpic');
+
+DROP POLICY IF EXISTS "Public Update gambarpic" ON storage.objects;
+CREATE POLICY "Public Update gambarpic" ON storage.objects FOR UPDATE USING (bucket_id = 'gambarpic');
+

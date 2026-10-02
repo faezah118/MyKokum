@@ -21,7 +21,10 @@ import {
   UserPlus,
   Search,
   CheckSquare,
-  Square
+  Square,
+  CheckCircle2,
+  RefreshCw,
+  ExternalLink
 } from 'lucide-react';
 import { 
   RekodKokurikulum, 
@@ -33,6 +36,7 @@ import {
   MuridUnit
 } from '../types';
 import { KATEGORI_TEMPLATE_PRESETS } from '../data/initialData';
+import { uploadImageToSupabaseStorage, SUPABASE_STORAGE_BUCKET } from '../services/supabase';
 
 interface TambahRekodFormProps {
   units: UnitKokurikulum[];
@@ -50,27 +54,30 @@ interface GuruItem {
   peranan: string;
 }
 
-// Client-side image compression helper (Canvas-based)
-const compressImageFile = (file: File): Promise<string> => {
+// Client-side image compression helper returning both Blob (for Supabase Storage) and dataUrl (for preview)
+const compressImageToBlobAndDataUrl = (
+  file: File,
+  maxDimension: number = 1200,
+  quality: number = 0.82
+): Promise<{ blob: Blob; dataUrl: string }> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const MAX_DIM = 1200;
         let width = img.width;
         let height = img.height;
 
         if (width > height) {
-          if (width > MAX_DIM) {
-            height = Math.round((height * MAX_DIM) / width);
-            width = MAX_DIM;
+          if (width > maxDimension) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
           }
         } else {
-          if (height > MAX_DIM) {
-            width = Math.round((width * MAX_DIM) / height);
-            height = MAX_DIM;
+          if (height > maxDimension) {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
           }
         }
 
@@ -79,12 +86,24 @@ const compressImageFile = (file: File): Promise<string> => {
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.82));
+          const dataUrl = canvas.toDataURL('image/jpeg', quality);
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                resolve({ blob, dataUrl });
+              } else {
+                resolve({ blob: file, dataUrl });
+              }
+            },
+            'image/jpeg',
+            quality
+          );
         } else {
-          resolve(e.target?.result as string);
+          const dataUrl = e.target?.result as string;
+          resolve({ blob: file, dataUrl });
         }
       };
-      img.onerror = () => reject(new Error('Gagal memproses imej'));
+      img.onerror = () => reject(new Error('Gagal memproses fail imej'));
       img.src = e.target?.result as string;
     };
     reader.onerror = () => reject(new Error('Gagal membaca fail'));
@@ -191,6 +210,11 @@ export const TambahRekodForm: React.FC<TambahRekodFormProps> = ({
   const [photo2, setPhoto2] = useState<{ url: string; kapsyen: string } | null>(null);
   const [isProcessingPhoto1, setIsProcessingPhoto1] = useState<boolean>(false);
   const [isProcessingPhoto2, setIsProcessingPhoto2] = useState<boolean>(false);
+  const [uploadingSlot1, setUploadingSlot1] = useState<boolean>(false);
+  const [uploadingSlot2, setUploadingSlot2] = useState<boolean>(false);
+  const [slot1Source, setSlot1Source] = useState<'supabase' | 'local' | null>(null);
+  const [slot2Source, setSlot2Source] = useState<'supabase' | 'local' | null>(null);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
 
   // Status & Maklumat Pelapor
   const [namaPelapor, setNamaPelapor] = useState<string>('');
@@ -437,27 +461,63 @@ export const TambahRekodForm: React.FC<TambahRekodFormProps> = ({
   };
 
   // ==========================================
-  // IMAGE HANDLERS (EXACTLY 2 SLOTS)
+  // IMAGE HANDLERS (EXACTLY 2 SLOTS - SUPABASE STORAGE BUCKET 'gambarpic')
   // ==========================================
   const handleUploadSlot = async (slotNumber: 1 | 2, file: File) => {
     if (!file.type.startsWith('image/')) return;
     try {
-      if (slotNumber === 1) setIsProcessingPhoto1(true);
-      else setIsProcessingPhoto2(true);
-
-      const base64 = await compressImageFile(file);
-      const cleanName = file.name.replace(/\.[^/.]+$/, '');
       if (slotNumber === 1) {
-        setPhoto1({ url: base64, kapsyen: cleanName || 'Foto Aktiviti 1' });
+        setIsProcessingPhoto1(true);
+        setUploadingSlot1(true);
       } else {
-        setPhoto2({ url: base64, kapsyen: cleanName || 'Foto Aktiviti 2' });
+        setIsProcessingPhoto2(true);
+        setUploadingSlot2(true);
+      }
+
+      // 1. Mampatkan imej & jana pratonton segera
+      const { blob, dataUrl } = await compressImageToBlobAndDataUrl(file);
+      const cleanName = file.name.replace(/\.[^/.]+$/, '');
+
+      if (slotNumber === 1) {
+        setPhoto1({ url: dataUrl, kapsyen: cleanName || 'Foto Aktiviti 1' });
+      } else {
+        setPhoto2({ url: dataUrl, kapsyen: cleanName || 'Foto Aktiviti 2' });
+      }
+
+      // 2. Muat naik secara terus ke Supabase Storage (Bucket: 'gambarpic')
+      const unitPrefix = activeUnit?.id || 'smk_madai';
+      const uploadRes = await uploadImageToSupabaseStorage(blob, `${unitPrefix}_slot${slotNumber}`);
+
+      if (uploadRes.success && uploadRes.url) {
+        if (slotNumber === 1) {
+          setPhoto1({ url: uploadRes.url, kapsyen: cleanName || 'Foto Aktiviti 1' });
+          setSlot1Source('supabase');
+        } else {
+          setPhoto2({ url: uploadRes.url, kapsyen: cleanName || 'Foto Aktiviti 2' });
+          setSlot2Source('supabase');
+        }
+        setUploadNotice(`Gambar ${slotNumber} berjaya disimpan ke Supabase Storage (bucket "gambarpic")!`);
+        setTimeout(() => setUploadNotice(null), 5000);
+      } else {
+        // Fallback kepada dataUrl tempatan jika bucket belum sedia
+        if (slotNumber === 1) {
+          setSlot1Source('local');
+        } else {
+          setSlot2Source('local');
+        }
+        console.warn(`Muat naik ke Supabase bucket gambarpic memerlukan polisi:`, uploadRes.error);
       }
     } catch (err) {
       console.error(err);
       setErrorMsg('Gagal memproses fail imej.');
     } finally {
-      if (slotNumber === 1) setIsProcessingPhoto1(false);
-      else setIsProcessingPhoto2(false);
+      if (slotNumber === 1) {
+        setIsProcessingPhoto1(false);
+        setUploadingSlot1(false);
+      } else {
+        setIsProcessingPhoto2(false);
+        setUploadingSlot2(false);
+      }
     }
   };
 
@@ -1130,19 +1190,30 @@ export const TambahRekodForm: React.FC<TambahRekodFormProps> = ({
 
           {/* 2. DUA (2) KEPING GAMBAR UNTUK GURU PENASIHAT UPLOAD */}
           <div className="pt-3 border-t border-slate-100 space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
-                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">
-                  2 Keping Gambar Aktiviti (Maksima 2 Keping)
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+                  <span>2 Keping Gambar Aktiviti</span>
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                    Bucket: gambarpic
+                  </span>
                 </h4>
                 <p className="text-[11px] text-slate-500">
-                  Muat naik 2 keping gambar untuk dicetak kemas ke dalam One Page Report (OPR)
+                  Gambar yang dimuat naik akan disimpan terus ke Supabase Storage (bucket <code className="text-emerald-700 font-semibold">gambarpic</code>) untuk paparan OPR.
                 </p>
               </div>
-              <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+              <span className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-50 text-blue-800 border border-blue-200 self-start sm:self-auto">
                 {(photo1 ? 1 : 0) + (photo2 ? 1 : 0)} / 2 Gambar
               </span>
             </div>
+
+            {/* Notis Muat Naik Supabase */}
+            {uploadNotice && (
+              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2 animate-fadeIn">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span className="font-semibold">{uploadNotice}</span>
+              </div>
+            )}
 
             {/* GRID DUA SLOT GAMBAR */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
@@ -1150,13 +1221,24 @@ export const TambahRekodForm: React.FC<TambahRekodFormProps> = ({
               {/* SLOT 1 */}
               <div className="p-4 rounded-2xl border border-slate-300 bg-slate-50 space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-800 text-xs">
-                    Gambar Aktiviti 1
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-slate-800 text-xs">
+                      Gambar Aktiviti 1
+                    </span>
+                    {photo1 && (photo1.url.includes('supabase.co') || slot1Source === 'supabase') && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full border border-emerald-300">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        <span>gambarpic</span>
+                      </span>
+                    )}
+                  </div>
                   {photo1 && (
                     <button
                       type="button"
-                      onClick={() => setPhoto1(null)}
+                      onClick={() => {
+                        setPhoto1(null);
+                        setSlot1Source(null);
+                      }}
                       className="text-rose-600 hover:text-rose-800 font-semibold text-[11px] flex items-center gap-0.5"
                     >
                       <Trash2 className="w-3 h-3" />
@@ -1166,13 +1248,20 @@ export const TambahRekodForm: React.FC<TambahRekodFormProps> = ({
                 </div>
 
                 {photo1 ? (
-                  <div className="space-y-2">
+                  <div className="space-y-2 relative">
                     <div className="relative h-44 rounded-xl overflow-hidden border border-slate-300 bg-black flex items-center justify-center">
                       <img
                         src={photo1.url}
                         alt="Foto 1"
                         className="w-full h-full object-cover"
                       />
+                      {uploadingSlot1 && (
+                        <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-xs flex flex-col items-center justify-center text-white z-10 p-3 text-center">
+                          <RefreshCw className="w-6 h-6 animate-spin text-emerald-400 mb-1.5" />
+                          <span className="text-xs font-bold">Menyimpan ke Supabase...</span>
+                          <span className="text-[10px] text-emerald-200 font-mono">Bucket: gambarpic</span>
+                        </div>
+                      )}
                     </div>
                     <input
                       type="text"
@@ -1185,7 +1274,7 @@ export const TambahRekodForm: React.FC<TambahRekodFormProps> = ({
                 ) : (
                   <div 
                     onClick={() => fileInputRef1.current?.click()}
-                    className="h-44 border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl flex flex-col items-center justify-center p-4 text-center cursor-pointer bg-white hover:bg-blue-50/30 transition-colors"
+                    className="relative h-44 border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl flex flex-col items-center justify-center p-4 text-center cursor-pointer bg-white hover:bg-blue-50/30 transition-colors overflow-hidden"
                   >
                     <input
                       ref={fileInputRef1}
@@ -1197,13 +1286,23 @@ export const TambahRekodForm: React.FC<TambahRekodFormProps> = ({
                       }}
                       className="hidden"
                     />
-                    <UploadCloud className="w-8 h-8 text-blue-600 mb-1" />
-                    <p className="font-bold text-slate-800 text-xs">
-                      {isProcessingPhoto1 ? 'Memproses fail...' : 'Pilih / Upload Gambar 1'}
-                    </p>
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      Kamera telefon atau fail peranti (JPG/PNG)
-                    </p>
+                    {uploadingSlot1 ? (
+                      <div className="flex flex-col items-center justify-center text-slate-700">
+                        <RefreshCw className="w-7 h-7 animate-spin text-emerald-600 mb-1.5" />
+                        <p className="font-bold text-xs">Memuat naik ke Supabase...</p>
+                        <p className="text-[10px] text-emerald-700">Bucket: gambarpic</p>
+                      </div>
+                    ) : (
+                      <>
+                        <UploadCloud className="w-8 h-8 text-blue-600 mb-1" />
+                        <p className="font-bold text-slate-800 text-xs">
+                          {isProcessingPhoto1 ? 'Memproses fail...' : 'Pilih / Upload Gambar 1'}
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          Disimpan terus ke bucket <span className="font-semibold text-emerald-600">gambarpic</span>
+                        </p>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -1211,13 +1310,24 @@ export const TambahRekodForm: React.FC<TambahRekodFormProps> = ({
               {/* SLOT 2 */}
               <div className="p-4 rounded-2xl border border-slate-300 bg-slate-50 space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-800 text-xs">
-                    Gambar Aktiviti 2
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-slate-800 text-xs">
+                      Gambar Aktiviti 2
+                    </span>
+                    {photo2 && (photo2.url.includes('supabase.co') || slot2Source === 'supabase') && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full border border-emerald-300">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        <span>gambarpic</span>
+                      </span>
+                    )}
+                  </div>
                   {photo2 && (
                     <button
                       type="button"
-                      onClick={() => setPhoto2(null)}
+                      onClick={() => {
+                        setPhoto2(null);
+                        setSlot2Source(null);
+                      }}
                       className="text-rose-600 hover:text-rose-800 font-semibold text-[11px] flex items-center gap-0.5"
                     >
                       <Trash2 className="w-3 h-3" />
@@ -1227,13 +1337,20 @@ export const TambahRekodForm: React.FC<TambahRekodFormProps> = ({
                 </div>
 
                 {photo2 ? (
-                  <div className="space-y-2">
+                  <div className="space-y-2 relative">
                     <div className="relative h-44 rounded-xl overflow-hidden border border-slate-300 bg-black flex items-center justify-center">
                       <img
                         src={photo2.url}
                         alt="Foto 2"
                         className="w-full h-full object-cover"
                       />
+                      {uploadingSlot2 && (
+                        <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-xs flex flex-col items-center justify-center text-white z-10 p-3 text-center">
+                          <RefreshCw className="w-6 h-6 animate-spin text-emerald-400 mb-1.5" />
+                          <span className="text-xs font-bold">Menyimpan ke Supabase...</span>
+                          <span className="text-[10px] text-emerald-200 font-mono">Bucket: gambarpic</span>
+                        </div>
+                      )}
                     </div>
                     <input
                       type="text"
@@ -1246,7 +1363,7 @@ export const TambahRekodForm: React.FC<TambahRekodFormProps> = ({
                 ) : (
                   <div 
                     onClick={() => fileInputRef2.current?.click()}
-                    className="h-44 border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl flex flex-col items-center justify-center p-4 text-center cursor-pointer bg-white hover:bg-blue-50/30 transition-colors"
+                    className="relative h-44 border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl flex flex-col items-center justify-center p-4 text-center cursor-pointer bg-white hover:bg-blue-50/30 transition-colors overflow-hidden"
                   >
                     <input
                       ref={fileInputRef2}
@@ -1258,13 +1375,23 @@ export const TambahRekodForm: React.FC<TambahRekodFormProps> = ({
                       }}
                       className="hidden"
                     />
-                    <UploadCloud className="w-8 h-8 text-blue-600 mb-1" />
-                    <p className="font-bold text-slate-800 text-xs">
-                      {isProcessingPhoto2 ? 'Memproses fail...' : 'Pilih / Upload Gambar 2'}
-                    </p>
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      Kamera telefon atau fail peranti (JPG/PNG)
-                    </p>
+                    {uploadingSlot2 ? (
+                      <div className="flex flex-col items-center justify-center text-slate-700">
+                        <RefreshCw className="w-7 h-7 animate-spin text-emerald-600 mb-1.5" />
+                        <p className="font-bold text-xs">Memuat naik ke Supabase...</p>
+                        <p className="text-[10px] text-emerald-700">Bucket: gambarpic</p>
+                      </div>
+                    ) : (
+                      <>
+                        <UploadCloud className="w-8 h-8 text-blue-600 mb-1" />
+                        <p className="font-bold text-slate-800 text-xs">
+                          {isProcessingPhoto2 ? 'Memproses fail...' : 'Pilih / Upload Gambar 2'}
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          Disimpan terus ke bucket <span className="font-semibold text-emerald-600">gambarpic</span>
+                        </p>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

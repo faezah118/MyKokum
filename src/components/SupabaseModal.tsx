@@ -157,7 +157,13 @@ ALTER TABLE records ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Akses Units" ON units FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Akses Students" ON students FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Akses Records" ON records FOR ALL USING (true) WITH CHECK (true);`;
+CREATE POLICY "Akses Records" ON records FOR ALL USING (true) WITH CHECK (true);
+
+-- Bucket gambarpic untuk muat naik gambar aktiviti:
+INSERT INTO storage.buckets (id, name, public) VALUES ('gambarpic', 'gambarpic', true) ON CONFLICT (id) DO UPDATE SET public = true;
+CREATE POLICY "Public Read gambarpic" ON storage.objects FOR SELECT USING (bucket_id = 'gambarpic');
+CREATE POLICY "Public Upload gambarpic" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'gambarpic');
+CREATE POLICY "Public Update gambarpic" ON storage.objects FOR UPDATE USING (bucket_id = 'gambarpic');`;
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(sqlScript);

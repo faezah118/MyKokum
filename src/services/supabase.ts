@@ -337,3 +337,54 @@ export const batchUploadLocalToSupabase = async (
     return { success: false, count: 0, error: msg };
   }
 };
+
+// ============================================================
+// PENGURUSAN MUAT NAIK GAMBAR KE BUCKET SUPABASE ('gambarpic')
+// ============================================================
+export const SUPABASE_STORAGE_BUCKET = 'gambarpic';
+
+export const uploadImageToSupabaseStorage = async (
+  fileOrBlob: File | Blob,
+  fileNamePrefix: string = 'aktiviti'
+): Promise<{ success: boolean; url: string; error?: string }> => {
+  try {
+    const timestamp = Date.now();
+    const randomStr = Math.random().toString(36).substring(2, 8);
+    const extension = fileOrBlob instanceof File 
+      ? (fileOrBlob.name.split('.').pop() || 'jpg').toLowerCase()
+      : 'jpg';
+    
+    // Format nama fail bersih untuk bucket gambarpic
+    const safePrefix = fileNamePrefix.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+    const filePath = `rekod/${safePrefix}_${timestamp}_${randomStr}.${extension}`;
+
+    const { data, error } = await supabase.storage
+      .from(SUPABASE_STORAGE_BUCKET)
+      .upload(filePath, fileOrBlob, {
+        cacheControl: '3600',
+        upsert: true,
+        contentType: fileOrBlob.type || 'image/jpeg',
+      });
+
+    if (error) {
+      console.warn('Ralat muat naik Supabase Storage (gambarpic):', error.message);
+      return { success: false, url: '', error: error.message };
+    }
+
+    // Dapatkan Public URL daripada bucket
+    const { data: publicUrlData } = supabase.storage
+      .from(SUPABASE_STORAGE_BUCKET)
+      .getPublicUrl(data.path);
+
+    if (!publicUrlData || !publicUrlData.publicUrl) {
+      return { success: false, url: '', error: 'Gagal menjana URL awam dari Supabase Storage.' };
+    }
+
+    return { success: true, url: publicUrlData.publicUrl };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('Pengecualian muat naik ke Supabase Storage (gambarpic):', msg);
+    return { success: false, url: '', error: msg };
+  }
+};
+
