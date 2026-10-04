@@ -1,13 +1,12 @@
-import React, { useState } from 'react';
-import { Award, BookOpen, Layers, ShieldCheck, RefreshCw, FileText, UserPlus, School, Database } from 'lucide-react';
+import React from 'react';
+import { Award, BookOpen, Layers, ShieldCheck, FileText, UserPlus, School } from 'lucide-react';
 import { RekodKokurikulum, UnitKokurikulum } from '../types';
-import { ConfirmActionModal } from './ConfirmActionModal';
 
 interface HeaderProps {
   records: RekodKokurikulum[];
   units: UnitKokurikulum[];
   onOpenBukuLaporan: () => void;
-  onResetData: () => void;
+  onResetData?: () => void;
   onOpenImportMurid?: () => void;
   onOpenSupabaseModal?: () => void;
   userRole: 'penyelaras' | 'setiausaha';
@@ -18,13 +17,10 @@ export const Header: React.FC<HeaderProps> = ({
   records,
   units,
   onOpenBukuLaporan,
-  onResetData,
   onOpenImportMurid,
-  onOpenSupabaseModal,
   userRole,
   setUserRole,
 }) => {
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const completedCount = records.filter((r) => r.status === 'Selesai').length;
   const needUpdateCount = records.filter((r) => r.status === 'Perlu Kemaskini').length;
 
@@ -133,47 +129,10 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden sm:inline">Buku Laporan 2026</span>
               <span className="sm:hidden">Buku 2026</span>
             </button>
-
-            {/* Supabase Cloud Database Button */}
-            {onOpenSupabaseModal && (
-              <button
-                type="button"
-                onClick={onOpenSupabaseModal}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold border border-emerald-300 ring-1 ring-emerald-200 transition-colors"
-                title="Pangkalan Data Supabase Cloud SMK Madai"
-              >
-                <Database className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Supabase</span>
-              </button>
-            )}
-
-            {/* Demo Reset Button */}
-            <button
-              type="button"
-              onClick={() => setShowResetConfirm(true)}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-100 transition-colors text-xs font-medium border border-slate-200"
-              title="Muat semula data demo 2026"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Reset Demo</span>
-            </button>
           </div>
 
         </div>
       </div>
-
-      <ConfirmActionModal
-        isOpen={showResetConfirm}
-        title="Muat Semula Data Contoh SMK Madai 2026?"
-        message="Tindakan ini akan mengembalikan seluruh 41 unit kokurikulum, senarai pelajar, dan rekod aktiviti SMK Madai kepada tetapan asal sesi persekolahan 2026."
-        confirmLabel="Ya, Muat Semula Data"
-        confirmVariant="primary"
-        onConfirm={() => {
-          setShowResetConfirm(false);
-          onResetData();
-        }}
-        onCancel={() => setShowResetConfirm(false)}
-      />
     </header>
   );
 };

@@ -9,10 +9,8 @@ import { CarianView } from './components/CarianView';
 import { AnalisisDashboard } from './components/AnalisisDashboard';
 import { OPRModal } from './components/OPRModal';
 import { BukuLaporanModal } from './components/BukuLaporanModal';
-import { KemaskiniPukalModal } from './components/KemaskiniPukalModal';
 import { ImportMuridModal } from './components/ImportMuridModal';
 import { SenaraiMuridUnitModal } from './components/SenaraiMuridUnitModal';
-import { SupabaseModal } from './components/SupabaseModal';
 import { 
   UnitKokurikulum, 
   RekodKokurikulum, 
@@ -59,8 +57,6 @@ export default function App() {
   const [editingRecord, setEditingRecord] = useState<RekodKokurikulum | null>(null);
   const [activeOPRRecord, setActiveOPRRecord] = useState<RekodKokurikulum | null>(null);
   const [showBukuLaporan, setShowBukuLaporan] = useState<boolean>(false);
-  const [showKemaskiniPukal, setShowKemaskiniPukal] = useState<boolean>(false);
-  const [showSupabaseModal, setShowSupabaseModal] = useState<boolean>(false);
   
   // Import & Senarai Murid Modals
   const [showImportMurid, setShowImportMurid] = useState<boolean>(false);
@@ -248,12 +244,10 @@ export default function App() {
         records={records}
         units={units}
         onOpenBukuLaporan={() => setShowBukuLaporan(true)}
-        onResetData={handleResetData}
         onOpenImportMurid={() => {
           setTargetUnitForImport(undefined);
           setShowImportMurid(true);
         }}
-        onOpenSupabaseModal={() => setShowSupabaseModal(true)}
         userRole={userRole}
         setUserRole={setUserRole}
       />
@@ -313,7 +307,6 @@ export default function App() {
               setActiveTab('tambah');
             }}
             onOpenBukuLaporan={() => setShowBukuLaporan(true)}
-            onOpenKemaskiniPukal={() => setShowKemaskiniPukal(true)}
             initialFilterUnitId={targetUnitFilter}
           />
         )}
@@ -382,16 +375,7 @@ export default function App() {
         />
       )}
 
-      {/* MODAL 3: Kemaskini Pukal */}
-      {showKemaskiniPukal && (
-        <KemaskiniPukalModal
-          records={records}
-          onBulkUpdate={handleBulkUpdate}
-          onClose={() => setShowKemaskiniPukal(false)}
-        />
-      )}
-
-      {/* MODAL 4: Import Senarai Murid SMK Madai */}
+      {/* MODAL 3: Import Senarai Murid SMK Madai */}
       {showImportMurid && (
         <ImportMuridModal
           units={units}
@@ -404,7 +388,7 @@ export default function App() {
         />
       )}
 
-      {/* MODAL 5: Paparan & Pengurusan Senarai Murid Unit */}
+      {/* MODAL 4: Paparan & Pengurusan Senarai Murid Unit */}
       {activeUnitForSenaraiMurid && (
         <SenaraiMuridUnitModal
           unit={activeUnitForSenaraiMurid}
@@ -418,18 +402,6 @@ export default function App() {
           }}
         />
       )}
-
-      {/* MODAL 6: Pangkalan Data Supabase Cloud */}
-      <SupabaseModal
-        isOpen={showSupabaseModal}
-        onClose={() => setShowSupabaseModal(false)}
-        records={records}
-        students={students}
-        units={units}
-        onSyncComplete={() => {
-          showToast('Penyegerakan ke Supabase Cloud berjaya!');
-        }}
-      />
 
       {/* Footer Aplikasi */}
       <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500 no-print">
