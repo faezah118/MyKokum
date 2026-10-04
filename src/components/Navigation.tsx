@@ -39,18 +39,18 @@ export const Navigation: React.FC<NavigationProps> = ({
       badge: unitCount,
     },
     {
-      id: 'carian' as ActiveTab,
-      label: 'Carian',
-      sublabel: 'Carian Pantas Rekod',
-      icon: Search,
-      badge: null,
-    },
-    {
       id: 'analisis' as ActiveTab,
       label: 'Analisis SU Kokum',
       sublabel: 'Papan Pemuka Data',
       icon: BarChart3,
       badge: '2026',
+    },
+    {
+      id: 'carian' as ActiveTab,
+      label: 'Carian',
+      sublabel: 'Carian Pantas Rekod',
+      icon: Search,
+      badge: null,
     },
   ];
 
