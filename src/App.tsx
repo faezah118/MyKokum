@@ -5,6 +5,7 @@ import { NotificationBanner } from './components/NotificationBanner';
 import { TambahRekodForm } from './components/TambahRekodForm';
 import { LaporanView } from './components/LaporanView';
 import { SenaraiUnitView } from './components/SenaraiUnitView';
+import { SenaraiGuruView } from './components/SenaraiGuruView';
 import { CarianView } from './components/CarianView';
 import { AnalisisDashboard } from './components/AnalisisDashboard';
 import { TakwimView } from './components/TakwimView';
@@ -276,6 +277,21 @@ export default function App() {
     showToast(`${assignments.length} orang guru berjaya diimport dan ditugaskan!`);
   };
 
+  // Handle Update Single Unit
+  const handleUpdateUnit = async (updatedUnit: UnitKokurikulum) => {
+    const updatedList = units.map((u) => (u.id === updatedUnit.id ? updatedUnit : u));
+    setUnits(updatedList);
+    saveStoredUnits(updatedList);
+
+    try {
+      await syncUnitToSupabase(updatedUnit);
+    } catch (err) {
+      console.warn('Sync unit error:', err);
+    }
+
+    showToast(`Maklumat ${updatedUnit.nama} berjaya dikemas kini!`);
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800">
       
@@ -382,7 +398,21 @@ export default function App() {
           />
         )}
 
-        {/* Tab 4: Analisis SU Kokum */}
+        {/* Tab 4: Senarai Guru Kokurikulum */}
+        {activeTab === 'guru' && (
+          <SenaraiGuruView
+            units={units}
+            records={records}
+            onOpenImportGuru={() => setShowImportGuru(true)}
+            onSelectUnit={(unitId) => {
+              setTargetUnitFilter(unitId);
+              setActiveTab('senarai');
+            }}
+            onUpdateUnit={handleUpdateUnit}
+          />
+        )}
+
+        {/* Tab 5: Analisis SU Kokum */}
         {activeTab === 'analisis' && (
           <AnalisisDashboard
             records={records}
@@ -394,7 +424,7 @@ export default function App() {
           />
         )}
 
-        {/* Tab 5: Takwim Kokurikulum (Carta Gantt) */}
+        {/* Tab 6: Takwim Kokurikulum (Carta Gantt) */}
         {activeTab === 'takwim' && (
           <TakwimView
             records={records}
@@ -408,7 +438,7 @@ export default function App() {
           />
         )}
 
-        {/* Tab 6: Carian Pantas Rekod */}
+        {/* Tab 7: Carian Pantas Rekod */}
         {activeTab === 'carian' && (
           <CarianView
             records={records}

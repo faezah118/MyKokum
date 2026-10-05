@@ -1,5 +1,5 @@
 import React from 'react';
-import { PlusCircle, FileText, List, Search, BarChart3, CalendarDays } from 'lucide-react';
+import { PlusCircle, FileText, List, Search, BarChart3, CalendarDays, GraduationCap } from 'lucide-react';
 import { ActiveTab } from '../types';
 
 interface NavigationProps {
@@ -37,6 +37,13 @@ export const Navigation: React.FC<NavigationProps> = ({
       sublabel: 'Unit Kokurikulum',
       icon: List,
       badge: unitCount,
+    },
+    {
+      id: 'guru' as ActiveTab,
+      label: 'Senarai Guru',
+      sublabel: 'Guru Penasihat & Penyelaras',
+      icon: GraduationCap,
+      badge: null,
     },
     {
       id: 'analisis' as ActiveTab,

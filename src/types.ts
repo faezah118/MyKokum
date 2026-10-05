@@ -81,4 +81,4 @@ export interface RekodKokurikulum {
   dikemaskiniPada: string;
 }
 
-export type ActiveTab = 'tambah' | 'laporan' | 'senarai' | 'analisis' | 'takwim' | 'carian';
+export type ActiveTab = 'tambah' | 'laporan' | 'senarai' | 'guru' | 'analisis' | 'takwim' | 'carian';
