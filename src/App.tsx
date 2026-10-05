@@ -489,11 +489,13 @@ export default function App() {
           <TambahRekodForm
             units={units}
             students={students}
+            teachers={teachers}
             onOpenImportForUnit={(unitId) => {
               setTargetUnitForImport(unitId);
               setShowImportMurid(true);
             }}
             onSaveRecord={handleSaveRecord}
+            onSaveTeacher={handleSaveGuru}
             onCancel={() => {
               setEditingRecord(null);
               setActiveTab('laporan');

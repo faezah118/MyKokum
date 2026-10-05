@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   PlusCircle, 
   Save, 
@@ -34,7 +34,8 @@ import {
   JenisRekod, 
   StatusLaporan,
   GambarAktiviti,
-  MuridUnit
+  MuridUnit,
+  GuruKokurikulumItem
 } from '../types';
 import { KATEGORI_TEMPLATE_PRESETS } from '../data/initialData';
 import { uploadImageToSupabaseStorage, SUPABASE_STORAGE_BUCKET } from '../services/supabase';
@@ -42,8 +43,10 @@ import { uploadImageToSupabaseStorage, SUPABASE_STORAGE_BUCKET } from '../servic
 interface TambahRekodFormProps {
   units: UnitKokurikulum[];
   students?: MuridUnit[];
+  teachers?: GuruKokurikulumItem[];
   onOpenImportForUnit?: (unitId: string) => void;
   onSaveRecord: (record: RekodKokurikulum) => void;
+  onSaveTeacher?: (guru: GuruKokurikulumItem) => Promise<void>;
   onCancel?: () => void;
   editingRecord?: RekodKokurikulum | null;
   defaultUnitId?: string;
@@ -53,6 +56,8 @@ interface GuruItem {
   id: string;
   nama: string;
   peranan: string;
+  isKetua?: boolean;
+  sumber?: string;
 }
 
 // Client-side image compression helper returning both Blob (for Supabase Storage) and dataUrl (for preview)
@@ -143,8 +148,10 @@ const sortStudentsByTingkatanKelasNama = (list: MuridUnit[]): MuridUnit[] => {
 export const TambahRekodForm: React.FC<TambahRekodFormProps> = ({
   units,
   students = [],
+  teachers = [],
   onOpenImportForUnit,
   onSaveRecord,
+  onSaveTeacher,
   onCancel,
   editingRecord,
   defaultUnitId,
@@ -294,13 +301,32 @@ CREATE POLICY "Public Update gambarpic" ON storage.objects FOR UPDATE TO public 
 
     setUnitStudents(effectiveStudents);
 
-    // 2. Senaraikan Guru Penasihat/Pembimbing bagi unit ini
-    const initialGurus: GuruItem[] = [
-      { id: 'g-1', nama: activeUnit.guruPenyelaras, peranan: 'Guru Penyelaras' },
-      { id: 'g-2', nama: 'Cikgu Noor Azlina binti Mahat', peranan: 'Guru Penasihat' },
-      { id: 'g-3', nama: 'Ustaz Ahmad Tarmizi bin Ismail', peranan: 'Guru Pembimbing' },
-    ];
-    setGuruList(initialGurus);
+    // 2. Senaraikan Guru Penasihat/Penyelaras bagi unit ini daripada rekod Supabase sahaja
+    const unitTeachers = (teachers || []).filter((t) => t.unitId === activeUnit.id);
+    let effectiveGurus: GuruItem[] = [];
+
+    if (unitTeachers.length > 0) {
+      effectiveGurus = unitTeachers.map((t) => ({
+        id: t.id,
+        nama: t.nama,
+        peranan: t.peranan,
+        isKetua: t.isKetua,
+        sumber: 'supabase',
+      }));
+    } else {
+      // Jika belum ada guru spesifik bagi unit ini dalam senarai teachers, semak jika guruPenyelaras unit sah
+      if (activeUnit.guruPenyelaras && activeUnit.guruPenyelaras !== 'Belum Ditetapkan' && !activeUnit.guruPenyelaras.includes('Penyelaras Unit')) {
+        effectiveGurus.push({
+          id: `guru_${activeUnit.id}_penyelaras`,
+          nama: activeUnit.guruPenyelaras,
+          peranan: 'Guru Penyelaras',
+          isKetua: true,
+          sumber: 'supabase',
+        });
+      }
+    }
+
+    setGuruList(effectiveGurus);
 
     // Jika sedang edit, ambil rekod asal
     if (editingRecord) {
@@ -347,13 +373,14 @@ CREATE POLICY "Public Update gambarpic" ON storage.objects FOR UPDATE TO public 
       const numHadir = editingRecord.sasaranPenglibatan.bilanganMuridHadir || effectiveStudents.length;
       setSelectedStudentIds(effectiveStudents.slice(0, numHadir).map((s) => s.id));
 
-      // Tandakan guru hadir mengikut bilangan
-      const numGuru = editingRecord.sasaranPenglibatan.bilanganGuruHadir || 2;
-      setSelectedGuruIds(initialGurus.slice(0, numGuru).map((g) => g.id));
+      // Tandakan guru hadir mengikut bilangan rekod
+      const numGuru = editingRecord.sasaranPenglibatan.bilanganGuruHadir || (effectiveGurus.length > 0 ? 1 : 0);
+      setSelectedGuruIds(effectiveGurus.slice(0, numGuru).map((g) => g.id));
     } else {
       // Mod Tambah Rekod Baru:
-      setNamaPelapor(activeUnit.guruPenyelaras);
-      setJawatanPelapor(`Guru Penyelaras ${activeUnit.nama}`);
+      const defaultGuruNama = effectiveGurus[0]?.nama || (activeUnit.guruPenyelaras !== 'Belum Ditetapkan' ? activeUnit.guruPenyelaras : '');
+      setNamaPelapor(defaultGuruNama);
+      setJawatanPelapor(effectiveGurus[0] ? `${effectiveGurus[0].peranan} ${activeUnit.nama}` : `Guru Penasihat ${activeUnit.nama}`);
       setTempat(activeUnit.tempatBiasa || 'Kawasan Sekolah SMK Madai');
       
       const preset = KATEGORI_TEMPLATE_PRESETS[activeUnit.kategori];
@@ -365,14 +392,14 @@ CREATE POLICY "Public Update gambarpic" ON storage.objects FOR UPDATE TO public 
       const defaultHadirCount = Math.max(1, Math.floor(effectiveStudents.length * 0.9));
       setSelectedStudentIds(effectiveStudents.slice(0, defaultHadirCount).map((s) => s.id));
 
-      // Default: Guru Penyelaras dan Guru Penasihat 1 hadir
-      setSelectedGuruIds([initialGurus[0].id, initialGurus[1].id]);
+      // Default: Tandakan semua guru Supabase hadir
+      setSelectedGuruIds(effectiveGurus.map((g) => g.id));
 
       // Kosongkan gambar jika mod baharu
       setPhoto1(null);
       setPhoto2(null);
     }
-  }, [editingRecord, activeUnit?.id, students]);
+  }, [editingRecord, activeUnit?.id, students, teachers]);
 
   // Handle unit selection change
   const handleUnitChange = (newUnitId: string) => {
@@ -414,18 +441,94 @@ CREATE POLICY "Public Update gambarpic" ON storage.objects FOR UPDATE TO public 
     );
   };
 
-  // Tambah Guru Baharu
-  const handleAddCustomGuru = () => {
+  // Senarai guru lain yang wujud dalam pangkalan data Supabase
+  const otherSupabaseTeachers = useMemo(() => {
+    return (teachers || []).filter(
+      (t) => !guruList.some((g) => g.nama.toLowerCase() === t.nama.toLowerCase())
+    );
+  }, [teachers, guruList]);
+
+  // Tambah Guru Baharu ke Supabase
+  const handleAddCustomGuru = async () => {
     if (!newGuruNama.trim()) return;
-    const newG: GuruItem = {
-      id: `g-custom-${Date.now()}`,
-      nama: newGuruNama.trim(),
-      peranan: newGuruPeranan.trim() || 'Guru Bertugas',
+    const name = newGuruNama.trim();
+    const role = newGuruPeranan.trim() || 'Guru Penasihat';
+    const isKetua = role.toLowerCase().includes('penyelaras') || role.toLowerCase().includes('ketua');
+
+    const newGItem: GuruKokurikulumItem = {
+      id: `guru_${activeUnit.id}_${name.toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_')}_${Date.now()}`,
+      nama: name,
+      unitId: activeUnit.id,
+      namaUnit: activeUnit.nama,
+      kategoriUnit: activeUnit.kategori,
+      peranan: isKetua ? 'Ketua Penyelaras / Penasihat' : 'Guru Penasihat',
+      isKetua: isKetua,
+      rekodDirekodCount: 0,
+      jawatan: isKetua ? `Guru Penyelaras ${activeUnit.nama}` : role,
+      sumber: 'supabase',
     };
+
+    const newG: GuruItem = {
+      id: newGItem.id,
+      nama: newGItem.nama,
+      peranan: newGItem.peranan,
+      isKetua: newGItem.isKetua,
+      sumber: 'supabase',
+    };
+
     setGuruList((prev) => [...prev, newG]);
     setSelectedGuruIds((prev) => [...prev, newG.id]);
+    if (!namaPelapor) {
+      setNamaPelapor(newG.nama);
+      setJawatanPelapor(`${newG.peranan} ${activeUnit.nama}`);
+    }
+
     setNewGuruNama('');
     setShowAddGuruInput(false);
+
+    if (onSaveTeacher) {
+      try {
+        await onSaveTeacher(newGItem);
+      } catch (err) {
+        console.warn('Ralat menyimpan guru ke Supabase:', err);
+      }
+    }
+  };
+
+  // Pilih guru sedia ada daripada pangkalan data Supabase
+  const handleAddExistingSupabaseTeacher = async (tItem: GuruKokurikulumItem) => {
+    if (guruList.some((g) => g.nama.toLowerCase() === tItem.nama.toLowerCase())) return;
+
+    const newG: GuruItem = {
+      id: tItem.id,
+      nama: tItem.nama,
+      peranan: 'Guru Penasihat',
+      isKetua: false,
+      sumber: 'supabase',
+    };
+
+    setGuruList((prev) => [...prev, newG]);
+    setSelectedGuruIds((prev) => [...prev, newG.id]);
+    if (!namaPelapor) {
+      setNamaPelapor(newG.nama);
+      setJawatanPelapor(`Guru Penasihat ${activeUnit.nama}`);
+    }
+
+    if (onSaveTeacher) {
+      try {
+        await onSaveTeacher({
+          ...tItem,
+          id: `guru_${activeUnit.id}_${tItem.nama.toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_')}_${Date.now()}`,
+          unitId: activeUnit.id,
+          namaUnit: activeUnit.nama,
+          kategoriUnit: activeUnit.kategori,
+          peranan: 'Guru Penasihat',
+          isKetua: false,
+        });
+      } catch (err) {
+        console.warn('Ralat menyimpan guru ke Supabase:', err);
+      }
+    }
   };
 
   // Tambah Murid Baharu Inline
@@ -1085,16 +1188,22 @@ CREATE POLICY "Public Update gambarpic" ON storage.objects FOR UPDATE TO public 
             </div>
           </div>
 
-          {/* BAHAGIAN B: SENARAI NAMA GURU YANG HADIR */}
+          {/* BAHAGIAN B: SENARAI NAMA GURU YANG HADIR (DARI SUPABASE SAHAJA) */}
           <div className="pt-3 border-t border-slate-200 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
-                <h4 className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
-                  <Users className="w-4 h-4 text-emerald-600" />
-                  <span>Senarai Guru Penasihat / Pembimbing yang Hadir</span>
-                </h4>
-                <p className="text-[11px] text-slate-500">
-                  Tandakan nama guru yang hadir bertugas. Jumlah guru hadir dipaparkan secara automatik.
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                    <Users className="w-4 h-4 text-emerald-600" />
+                    <span>Senarai Guru Penasihat / Pembimbing yang Hadir</span>
+                  </h4>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    <span>Rekod Supabase Sahaja</span>
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Tandakan nama guru yang hadir bertugas. Hanya guru yang disahkan dalam pangkalan data Supabase dipaparkan.
                 </p>
               </div>
 
@@ -1104,64 +1213,116 @@ CREATE POLICY "Public Update gambarpic" ON storage.objects FOR UPDATE TO public 
                 className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-semibold transition-colors self-start"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>Tambah Nama Guru</span>
+                <span>+ Tambah Guru ke Supabase</span>
               </button>
             </div>
 
-            {/* Input Tambah Guru Bertugas */}
+            {/* Input Tambah Guru Bertugas ke Supabase */}
             {showAddGuruInput && (
-              <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-200 flex flex-col sm:flex-row gap-2 animate-fadeIn text-xs">
+              <div className="p-3.5 bg-emerald-50/80 rounded-xl border border-emerald-300 flex flex-col sm:flex-row gap-2.5 animate-fadeIn text-xs">
                 <input
                   type="text"
                   value={newGuruNama}
                   onChange={(e) => setNewGuruNama(e.target.value)}
                   placeholder="Nama Penuh Guru (cth: Cikgu Halimah binti Daud)"
-                  className="flex-1 px-3 py-1.5 bg-white rounded-lg border border-emerald-300 text-xs"
+                  className="flex-1 px-3 py-1.5 bg-white rounded-lg border border-emerald-300 text-xs focus:ring-2 focus:ring-emerald-500"
                 />
                 <input
                   type="text"
                   value={newGuruPeranan}
                   onChange={(e) => setNewGuruPeranan(e.target.value)}
-                  placeholder="Peranan (cth: Guru Pembimbing)"
-                  className="sm:w-44 px-3 py-1.5 bg-white rounded-lg border border-emerald-300 text-xs"
+                  placeholder="Peranan (cth: Guru Penasihat)"
+                  className="sm:w-44 px-3 py-1.5 bg-white rounded-lg border border-emerald-300 text-xs focus:ring-2 focus:ring-emerald-500"
                 />
                 <button
                   type="button"
                   onClick={handleAddCustomGuru}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition-colors"
+                  className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg transition-colors shadow-xs"
                 >
-                  Simpan Guru
+                  Simpan ke Supabase
                 </button>
               </div>
             )}
 
-            {/* Senarai Pilihan Guru */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 text-xs">
-              {guruList.map((g) => {
-                const isChecked = selectedGuruIds.includes(g.id);
-                return (
-                  <label
-                    key={g.id}
-                    className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all ${
-                      isChecked
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-950 shadow-xs'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={() => toggleGuru(g.id)}
-                      className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                    />
-                    <div>
-                      <div className="font-bold">{g.nama}</div>
-                      <div className="text-[11px] text-slate-500">{g.peranan}</div>
-                    </div>
-                  </label>
-                );
-              })}
-            </div>
+            {/* Jika Tiada Guru Berdaftar di Supabase bagi unit ini */}
+            {guruList.length === 0 ? (
+              <div className="p-4 rounded-xl bg-amber-50/80 border border-amber-200 text-amber-900 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    Belum ada rekod guru penasihat di Supabase untuk unit <strong>{activeUnit.nama}</strong>. Sila klik <strong>"+ Tambah Guru ke Supabase"</strong> atau pilih guru lain di bawah.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddGuruInput(true)}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-xs self-start sm:self-auto shrink-0"
+                >
+                  + Tambah Guru Sekarang
+                </button>
+              </div>
+            ) : (
+              /* Senarai Pilihan Guru Sahih Supabase */
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 text-xs">
+                {guruList.map((g) => {
+                  const isChecked = selectedGuruIds.includes(g.id);
+                  return (
+                    <label
+                      key={g.id}
+                      className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all ${
+                        isChecked
+                          ? 'bg-emerald-50 border-emerald-400 text-emerald-950 shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => toggleGuru(g.id)}
+                        className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <div className="font-bold flex items-center justify-between gap-1">
+                          <span>{g.nama}</span>
+                          <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            Supabase
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-500">{g.peranan}</div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Pilihan Pantas: Masukkan Guru Lain yang Berdaftar di Supabase */}
+            {otherSupabaseTeachers.length > 0 && (
+              <div className="pt-1 flex flex-col sm:flex-row sm:items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-xs">
+                <span className="text-[11px] font-semibold text-slate-600">
+                  Pilih guru lain daripada pangkalan data Supabase:
+                </span>
+                <select
+                  defaultValue=""
+                  onChange={(e) => {
+                    const chosenId = e.target.value;
+                    if (chosenId) {
+                      const found = teachers?.find((t: GuruKokurikulumItem) => t.id === chosenId);
+                      if (found) handleAddExistingSupabaseTeacher(found);
+                      e.target.value = '';
+                    }
+                  }}
+                  className="px-2.5 py-1 text-xs border border-slate-300 rounded-lg bg-white text-slate-800 font-medium focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="" disabled>-- Pilih Guru Sekolah (Supabase) --</option>
+                  {otherSupabaseTeachers.map((t: GuruKokurikulumItem) => (
+                    <option key={t.id} value={t.id}>
+                      {t.nama} ({t.namaUnit || t.kategoriUnit})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1480,22 +1641,26 @@ CREATE POLICY "Public Update gambarpic" ON storage.objects FOR UPDATE TO public 
                 <span className="text-rose-500">*</span>
               </label>
               <select
-                value={namaPelapor || activeUnit?.guruPenyelaras}
+                value={namaPelapor || guruList[0]?.nama || ''}
                 onChange={(e) => {
                   const selectedName = e.target.value;
                   setNamaPelapor(selectedName);
-                  const selectedG = guruList.find((g) => g.nama === selectedName);
+                  const selectedG = guruList.find((g) => g.nama === selectedName) || teachers.find((t) => t.nama === selectedName);
                   if (selectedG) {
                     setJawatanPelapor(`${selectedG.peranan} ${activeUnit?.nama || ''}`);
                   }
                 }}
                 className="px-3 py-1.5 rounded-xl border border-blue-300 bg-blue-50/40 text-blue-950 font-bold text-xs focus:ring-2 focus:ring-blue-500"
               >
-                {guruList.map((g) => (
-                  <option key={g.id} value={g.nama}>
-                    {g.nama} ({g.peranan})
-                  </option>
-                ))}
+                {guruList.length === 0 ? (
+                  <option value="">-- Tiada Guru di Supabase --</option>
+                ) : (
+                  guruList.map((g) => (
+                    <option key={g.id} value={g.nama}>
+                      {g.nama} ({g.peranan})
+                    </option>
+                  ))
+                )}
               </select>
             </div>
 
