@@ -43,6 +43,22 @@ export interface UnitKokurikulum {
   senaraiGuru?: string[]; // Senarai guru penasihat & penyelaras
 }
 
+export interface GuruKokurikulumItem {
+  id: string; // ID unik guru
+  nama: string;
+  unitId: string;
+  namaUnit: string;
+  kategoriUnit: KategoriUnit;
+  peranan: 'Ketua Penyelaras / Penasihat' | 'Guru Penasihat';
+  isKetua: boolean;
+  rekodDirekodCount: number;
+  jawatan?: string;
+  noTelefon?: string;
+  emel?: string;
+  sumber?: 'supabase' | 'import';
+  tarikhDidaftar?: string;
+}
+
 export interface GambarAktiviti {
   id: string;
   url: string;

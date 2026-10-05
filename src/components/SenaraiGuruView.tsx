@@ -19,39 +19,42 @@ import {
   Phone,
   Mail,
   X,
-  Check
+  Check,
+  RefreshCw,
+  Database,
+  CloudCheck
 } from 'lucide-react';
-import { UnitKokurikulum, RekodKokurikulum, KategoriUnit } from '../types';
+import { UnitKokurikulum, RekodKokurikulum, KategoriUnit, GuruKokurikulumItem } from '../types';
 
 interface SenaraiGuruViewProps {
   units: UnitKokurikulum[];
   records: RekodKokurikulum[];
+  teachers: GuruKokurikulumItem[];
+  isLoading?: boolean;
   onOpenImportGuru: () => void;
   onSelectUnit: (unitId: string) => void;
   onUpdateUnit: (updatedUnit: UnitKokurikulum) => void;
-}
-
-export interface GuruKokurikulumItem {
-  id: string; // unique ID
-  nama: string;
-  unitId: string;
-  namaUnit: string;
-  kategoriUnit: KategoriUnit;
-  peranan: 'Ketua Penyelaras / Penasihat' | 'Guru Penasihat';
-  isKetua: boolean;
-  rekodDirekodCount: number;
+  onSaveGuru: (guru: GuruKokurikulumItem) => Promise<void>;
+  onDeleteGuru: (guru: GuruKokurikulumItem) => Promise<void>;
+  onRefreshFromSupabase?: () => Promise<void>;
 }
 
 export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
   units,
   records,
+  teachers,
+  isLoading = false,
   onOpenImportGuru,
   onSelectUnit,
   onUpdateUnit,
+  onSaveGuru,
+  onDeleteGuru,
+  onRefreshFromSupabase,
 }) => {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedKategori, setSelectedKategori] = useState<'SEMUA' | KategoriUnit>('SEMUA');
   const [selectedPeranan, setSelectedPeranan] = useState<'SEMUA' | 'Ketua' | 'Penasihat'>('SEMUA');
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   
   // State Modal Tambah / Kemaskini Guru
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
@@ -59,61 +62,23 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
   const [inputNama, setInputNama] = useState<string>('');
   const [inputUnitId, setInputUnitId] = useState<string>(units[0]?.id || '');
   const [inputPeranan, setInputPeranan] = useState<'Ketua Penyelaras / Penasihat' | 'Guru Penasihat'>('Ketua Penyelaras / Penasihat');
+  const [inputPhone, setInputPhone] = useState<string>('');
+  const [inputEmel, setInputEmel] = useState<string>('');
 
-  // Mengumpulkan senarai guru daripada setiap unit
+  // Senarai guru dimuatkan daripada Supabase sahaja
   const allGuruList: GuruKokurikulumItem[] = useMemo(() => {
-    const list: GuruKokurikulumItem[] = [];
+    return teachers.map((g) => {
+      // Kira bilangan rekod aktiviti terkini daripada rekod Supabase
+      const count = records.filter(
+        (r) => r.unitId === g.unitId && (r.namaPelapor === g.nama || r.namaPelapor.toLowerCase().includes(g.nama.toLowerCase()))
+      ).length;
 
-    units.forEach((unit) => {
-      const guruNamesSet = new Set<string>();
-
-      // 1. Tambah Ketua Guru Penyelaras
-      if (unit.guruPenyelaras && unit.guruPenyelaras.trim() !== '') {
-        const trimmed = unit.guruPenyelaras.trim();
-        guruNamesSet.add(trimmed);
-        const recordCount = records.filter(
-          (r) => r.unitId === unit.id && (r.namaPelapor === trimmed || r.namaPelapor.toLowerCase().includes(trimmed.toLowerCase()))
-        ).length;
-
-        list.push({
-          id: `${unit.id}_ketua_${trimmed}`,
-          nama: trimmed,
-          unitId: unit.id,
-          namaUnit: unit.nama,
-          kategoriUnit: unit.kategori,
-          peranan: 'Ketua Penyelaras / Penasihat',
-          isKetua: true,
-          rekodDirekodCount: recordCount,
-        });
-      }
-
-      // 2. Tambah Guru Penasihat Tambahan daripada senaraiGuru
-      if (unit.senaraiGuru && Array.isArray(unit.senaraiGuru)) {
-        unit.senaraiGuru.forEach((gName) => {
-          const trimmed = gName.trim();
-          if (trimmed && !guruNamesSet.has(trimmed)) {
-            guruNamesSet.add(trimmed);
-            const recordCount = records.filter(
-              (r) => r.unitId === unit.id && (r.namaPelapor === trimmed || r.namaPelapor.toLowerCase().includes(trimmed.toLowerCase()))
-            ).length;
-
-            list.push({
-              id: `${unit.id}_penasihat_${trimmed}`,
-              nama: trimmed,
-              unitId: unit.id,
-              namaUnit: unit.nama,
-              kategoriUnit: unit.kategori,
-              peranan: 'Guru Penasihat',
-              isKetua: false,
-              rekodDirekodCount: recordCount,
-            });
-          }
-        });
-      }
+      return {
+        ...g,
+        rekodDirekodCount: Math.max(g.rekodDirekodCount || 0, count),
+      };
     });
-
-    return list;
-  }, [units, records]);
+  }, [teachers, records]);
 
   // Penapisan & Carian
   const filteredGuruList = useMemo(() => {
@@ -135,7 +100,8 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
         return (
           g.nama.toLowerCase().includes(q) ||
           g.namaUnit.toLowerCase().includes(q) ||
-          g.kategoriUnit.toLowerCase().includes(q)
+          g.kategoriUnit.toLowerCase().includes(q) ||
+          (g.jawatan && g.jawatan.toLowerCase().includes(q))
         );
       }
       return true;
@@ -148,12 +114,25 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
   const kelabCount = allGuruList.filter((g) => g.kategoriUnit === 'Kelab & Persatuan').length;
   const ketuaCount = allGuruList.filter((g) => g.isKetua).length;
 
+  // Handler Segar Semula Supabase
+  const handleRefresh = async () => {
+    if (!onRefreshFromSupabase) return;
+    setIsRefreshing(true);
+    try {
+      await onRefreshFromSupabase();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   // Buka Modal Tambah Guru
   const handleOpenAddModal = (unitIdPreselect?: string) => {
     setEditingGuru(null);
     setInputNama('');
     setInputUnitId(unitIdPreselect || units[0]?.id || '');
     setInputPeranan('Guru Penasihat');
+    setInputPhone('');
+    setInputEmel('');
     setShowAddModal(true);
   };
 
@@ -163,11 +142,13 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
     setInputNama(guru.nama);
     setInputUnitId(guru.unitId);
     setInputPeranan(guru.peranan);
+    setInputPhone(guru.noTelefon || '');
+    setInputEmel(guru.emel || '');
     setShowAddModal(true);
   };
 
-  // Simpan / Kemas Kini Guru
-  const handleSaveGuru = (e: React.FormEvent) => {
+  // Simpan / Kemas Kini Guru ke Supabase
+  const handleSaveGuruSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputNama.trim() || !inputUnitId) return;
 
@@ -175,78 +156,47 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
     if (!targetUnit) return;
 
     const newGuruName = inputNama.trim();
-    let currentSenarai = targetUnit.senaraiGuru || (targetUnit.guruPenyelaras ? [targetUnit.guruPenyelaras] : []);
+    const isKetuaRole = inputPeranan === 'Ketua Penyelaras / Penasihat';
 
-    let newGuruPenyelaras = targetUnit.guruPenyelaras;
-
-    if (editingGuru) {
-      // Jika menukar unit
-      if (editingGuru.unitId !== inputUnitId) {
-        // Padam dari unit lama
-        const oldUnit = units.find((u) => u.id === editingGuru.unitId);
-        if (oldUnit) {
-          const oldList = (oldUnit.senaraiGuru || []).filter((g) => g !== editingGuru.nama);
-          const oldKetua = oldUnit.guruPenyelaras === editingGuru.nama 
-            ? (oldList[0] || 'Belum Ditetapkan') 
-            : oldUnit.guruPenyelaras;
-          onUpdateUnit({
-            ...oldUnit,
-            guruPenyelaras: oldKetua,
-            senaraiGuru: oldList,
-          });
-        }
-      }
-
-      // Kemaskini dalam senarai unit semasa
-      currentSenarai = currentSenarai.filter((g) => g !== editingGuru.nama);
-    }
-
-    currentSenarai = Array.from(new Set([...currentSenarai, newGuruName]));
-
-    if (inputPeranan === 'Ketua Penyelaras / Penasihat') {
-      newGuruPenyelaras = newGuruName;
-    } else if (targetUnit.guruPenyelaras === newGuruName && inputPeranan === 'Guru Penasihat') {
-      // Jika ditukar dari ketua kepada penasihat
-      const alternativeKetua = currentSenarai.find((g) => g !== newGuruName) || newGuruName;
-      newGuruPenyelaras = alternativeKetua;
-    }
-
-    const updatedUnit: UnitKokurikulum = {
-      ...targetUnit,
-      guruPenyelaras: newGuruPenyelaras,
-      senaraiGuru: currentSenarai,
+    const guruItemToSave: GuruKokurikulumItem = {
+      id: editingGuru ? editingGuru.id : `guru_${targetUnit.id}_${newGuruName.toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_')}_${Date.now()}`,
+      nama: newGuruName,
+      unitId: targetUnit.id,
+      namaUnit: targetUnit.nama,
+      kategoriUnit: targetUnit.kategori,
+      peranan: inputPeranan,
+      isKetua: isKetuaRole,
+      rekodDirekodCount: editingGuru?.rekodDirekodCount || 0,
+      jawatan: isKetuaRole ? `Guru Penyelaras ${targetUnit.nama}` : 'Guru Penasihat',
+      noTelefon: inputPhone.trim() || undefined,
+      emel: inputEmel.trim() || undefined,
+      sumber: 'supabase',
     };
 
-    onUpdateUnit(updatedUnit);
+    await onSaveGuru(guruItemToSave);
+
+    // Kemaskini unit secara selari jika Ketua
+    if (isKetuaRole) {
+      onUpdateUnit({
+        ...targetUnit,
+        guruPenyelaras: newGuruName,
+      });
+    }
+
     setShowAddModal(false);
   };
 
-  // Padam Guru dari Unit
-  const handleDeleteGuru = (guru: GuruKokurikulumItem) => {
-    if (!window.confirm(`Adakah anda pasti mahu memadam ${guru.nama} daripada ${guru.namaUnit}?`)) {
+  // Padam Guru dari Supabase
+  const handleDeleteGuruClick = async (guru: GuruKokurikulumItem) => {
+    if (!window.confirm(`Adakah anda pasti mahu memadam rekod "${guru.nama}" (${guru.namaUnit}) dari pangkalan data Supabase?`)) {
       return;
     }
-
-    const targetUnit = units.find((u) => u.id === guru.unitId);
-    if (!targetUnit) return;
-
-    const newSenarai = (targetUnit.senaraiGuru || []).filter((g) => g !== guru.nama);
-    let newKetua = targetUnit.guruPenyelaras;
-
-    if (guru.isKetua) {
-      newKetua = newSenarai[0] || 'Belum Ditetapkan';
-    }
-
-    onUpdateUnit({
-      ...targetUnit,
-      guruPenyelaras: newKetua,
-      senaraiGuru: newSenarai,
-    });
+    await onDeleteGuru(guru);
   };
 
   // Muat Turun Senarai Guru (CSV)
   const handleExportCSV = () => {
-    const headers = ['Bil', 'Nama Guru', 'Unit Kokurikulum', 'Kategori', 'Peranan', 'Bil Aktiviti Direkodkan'];
+    const headers = ['Bil', 'Nama Guru', 'Unit Kokurikulum', 'Kategori', 'Peranan', 'Bil Aktiviti Direkodkan', 'Sumber Pangkalan Data'];
     const rows = filteredGuruList.map((g, idx) => [
       idx + 1,
       `"${g.nama}"`,
@@ -254,6 +204,7 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
       `"${g.kategoriUnit}"`,
       `"${g.peranan}"`,
       g.rekodDirekodCount,
+      '"Supabase Database"',
     ]);
 
     const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
@@ -261,7 +212,7 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `senarai_guru_kokurikulum_smk_madai_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `senarai_guru_supabase_smk_madai_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -274,22 +225,37 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
       <div className="bg-gradient-to-r from-slate-900 via-teal-950 to-slate-900 text-white p-6 rounded-2xl shadow-sm border border-slate-800">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-teal-500/20 text-teal-300 border border-teal-400/30 flex items-center gap-1.5">
                 <GraduationCap className="w-3.5 h-3.5" />
                 <span>Pengurusan Tenaga Pengajar Kokurikulum</span>
               </span>
-              <span className="text-xs text-slate-400">SMK Madai 2026</span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>Pangkalan Data Supabase: {allGuruList.length} Guru Sahih</span>
+              </span>
             </div>
-            <h2 className="text-2xl font-bold mt-1.5 tracking-tight">
+            <h2 className="text-2xl font-bold mt-2 tracking-tight">
               Direktori & Senarai Guru Kokurikulum 2026
             </h2>
-            <p className="text-xs text-slate-300 mt-1 max-w-2xl">
-              Senarai dan penugasan rasmi Guru Penasihat serta Guru Penyelaras bagi 41 unit kokurikulum SMK Madai mengikut komponen Badan Beruniform, Sukan & Permainan, dan Kelab & Persatuan.
+            <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+              Memaparkan rekod senarai guru yang disahkan daripada pangkalan data Supabase sahaja. Tiada sebarang data tiruan dimuatkan.
             </p>
           </div>
 
           <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
+            {onRefreshFromSupabase && (
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={isRefreshing || isLoading}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold border border-white/20 transition-colors disabled:opacity-50"
+                title="Segar semula senarai guru dari pangkalan data Supabase"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <span>{isRefreshing ? 'Menyegerak...' : 'Segar Semula Supabase'}</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={handleExportCSV}
@@ -303,7 +269,7 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
               type="button"
               onClick={onOpenImportGuru}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-semibold shadow-xs transition-colors"
-              title="Import pukal senarai guru daripada Excel atau fail CSV"
+              title="Import pukal senarai guru dan segerakkan ke Supabase"
             >
               <UploadCloud className="w-3.5 h-3.5" />
               <span>Import Pukal</span>
@@ -329,12 +295,12 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
           </div>
           <div>
             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">
-              Jumlah Guru Didaftar
+              Jumlah Guru di Supabase
             </span>
             <div className="flex items-baseline gap-1.5">
               <span className="text-xl font-black text-slate-900">{allGuruList.length} Orang</span>
             </div>
-            <span className="text-[10px] text-slate-400">Merentasi {units.length} unit</span>
+            <span className="text-[10px] text-emerald-600 font-medium">100% Sumber Supabase Sahih</span>
           </div>
         </div>
 
@@ -350,7 +316,7 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
             <div className="flex items-baseline gap-1.5">
               <span className="text-xl font-black text-slate-900">{uniformCount} Guru</span>
             </div>
-            <span className="text-[10px] text-slate-400">9 Unit Beruniform</span>
+            <span className="text-[10px] text-slate-400">Badan Beruniform</span>
           </div>
         </div>
 
@@ -366,7 +332,7 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
             <div className="flex items-baseline gap-1.5">
               <span className="text-xl font-black text-slate-900">{sukanCount} Guru</span>
             </div>
-            <span className="text-[10px] text-slate-400">16 Unit Sukan</span>
+            <span className="text-[10px] text-slate-400">Sukan & Permainan</span>
           </div>
         </div>
 
@@ -382,132 +348,89 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
             <div className="flex items-baseline gap-1.5">
               <span className="text-xl font-black text-slate-900">{kelabCount} Guru</span>
             </div>
-            <span className="text-[10px] text-slate-400">16 Kelab Akademik</span>
+            <span className="text-[10px] text-slate-400">Kelab & Persatuan</span>
           </div>
         </div>
       </div>
 
-      {/* 3. FILTER, CATEGORY TABS & SEARCH */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          
-          {/* Category Tabs */}
-          <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200 overflow-x-auto text-xs">
+      {/* 3. FILTER & SEARCH TOOLBAR */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        {/* Search Input */}
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Cari nama guru, unit kokurikulum, atau peranan..."
+            className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-hidden transition-all"
+          />
+          {searchTerm && (
             <button
               type="button"
-              onClick={() => setSelectedKategori('SEMUA')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap ${
-                selectedKategori === 'SEMUA'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
+              onClick={() => setSearchTerm('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
             >
-              Semua ({allGuruList.length})
+              <X className="w-3.5 h-3.5" />
             </button>
-            <button
-              type="button"
-              onClick={() => setSelectedKategori('Unit Beruniform')}
-              className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all whitespace-nowrap ${
-                selectedKategori === 'Unit Beruniform'
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-emerald-700'
-              }`}
-            >
-              <Shield className="w-3.5 h-3.5" />
-              <span>Unit Beruniform ({uniformCount})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedKategori('Sukan & Permainan')}
-              className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all whitespace-nowrap ${
-                selectedKategori === 'Sukan & Permainan'
-                  ? 'bg-rose-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-rose-700'
-              }`}
-            >
-              <Trophy className="w-3.5 h-3.5" />
-              <span>Sukan & Permainan ({sukanCount})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedKategori('Kelab & Persatuan')}
-              className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all whitespace-nowrap ${
-                selectedKategori === 'Kelab & Persatuan'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-blue-700'
-              }`}
-            >
-              <BookMarked className="w-3.5 h-3.5" />
-              <span>Kelab & Persatuan ({kelabCount})</span>
-            </button>
-          </div>
-
-          {/* Quick Search */}
-          <div className="relative w-full md:w-72">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Cari nama guru atau nama unit..."
-              className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500 bg-slate-50 focus:bg-white"
-            />
-          </div>
+          )}
         </div>
 
-        {/* Secondary Filter: Peranan Filter */}
-        <div className="flex items-center gap-2 pt-2 border-t border-slate-100 text-xs">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">
-            Tapis Peranan:
-          </span>
-          <button
-            type="button"
-            onClick={() => setSelectedPeranan('SEMUA')}
-            className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
-              selectedPeranan === 'SEMUA'
-                ? 'bg-slate-900 text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            Semua Peranan
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedPeranan('Ketua')}
-            className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
-              selectedPeranan === 'Ketua'
-                ? 'bg-teal-700 text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            Ketua Guru Penyelaras Sahaja ({ketuaCount})
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedPeranan('Penasihat')}
-            className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
-              selectedPeranan === 'Penasihat'
-                ? 'bg-teal-700 text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            Guru Penasihat ({allGuruList.length - ketuaCount})
-          </button>
+        {/* Category & Role Filters */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Kategori Filter */}
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
+            {(['SEMUA', 'Unit Beruniform', 'Sukan & Permainan', 'Kelab & Persatuan'] as const).map((kat) => (
+              <button
+                key={kat}
+                type="button"
+                onClick={() => setSelectedKategori(kat)}
+                className={`px-2.5 py-1 rounded-lg transition-all ${
+                  selectedKategori === kat
+                    ? 'bg-white text-teal-900 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {kat === 'SEMUA' ? 'Semua Kategori' : kat}
+              </button>
+            ))}
+          </div>
+
+          {/* Peranan Filter */}
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
+            {(['SEMUA', 'Ketua', 'Penasihat'] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setSelectedPeranan(p)}
+                className={`px-2.5 py-1 rounded-lg transition-all ${
+                  selectedPeranan === p
+                    ? 'bg-white text-teal-900 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {p === 'SEMUA' ? 'Semua Peranan' : p === 'Ketua' ? 'Ketua Penyelaras' : 'Guru Penasihat'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* 4. SENARAI JADUAL GURU KOKURIKULUM */}
+      {/* 4. MAIN TEACHER DIRECTORY TABLE */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+        <div className="p-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Users className="w-4 h-4 text-teal-700" />
             <h3 className="text-sm font-bold text-slate-900">
-              Senarai Guru Penasihat ({filteredGuruList.length} Rekod)
+              Senarai Guru Sahih ({filteredGuruList.length} Rekod daripada Supabase)
             </h3>
           </div>
-          <span className="text-xs text-slate-500">
-            Sesi Kokurikulum SMK Madai 2026
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+              <Database className="w-3 h-3" />
+              <span>Hanya Rekod Supabase Dimuatkan</span>
+            </span>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -519,15 +442,50 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
                 <th className="p-3.5">Unit Kokurikulum</th>
                 <th className="p-3.5">Kategori</th>
                 <th className="p-3.5">Peranan</th>
-                <th className="p-3.5 text-center">Aktiviti Direkodkan</th>
+                <th className="p-3.5 text-center">Aktiviti Direkod</th>
+                <th className="p-3.5 text-center">Status Pangkalan Data</th>
                 <th className="p-3.5 text-right">Tindakan</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredGuruList.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-10 text-center text-slate-500">
-                    Tiada guru dijumpai mengikut kriteria carian anda.
+                  <td colSpan={8} className="p-12 text-center">
+                    <div className="max-w-md mx-auto space-y-3">
+                      <div className="w-12 h-12 mx-auto rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center">
+                        <GraduationCap className="w-6 h-6" />
+                      </div>
+                      <h4 className="text-sm font-bold text-slate-900">
+                        {allGuruList.length === 0 
+                          ? 'Pangkalan Data Belum Mempunyai Rekod Guru'
+                          : 'Tiada Rekod Memenuhi Kriteria Carian'}
+                      </h4>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        {allGuruList.length === 0 
+                          ? 'Hanya rekod senarai guru yang disahkan daripada pangkalan data Supabase sahaja akan dipaparkan di sini (tiada data tiruan). Sila klik butang di bawah untuk mendaftar guru baharu atau import fail senarai guru ke pangkalan data Supabase.'
+                          : 'Tiada guru yang sepadan dengan tapisan semasa. Cuba ubah atau kosongkan kata kunci carian.'}
+                      </p>
+                      {allGuruList.length === 0 && (
+                        <div className="flex items-center justify-center gap-2 pt-2">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenAddModal()}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold shadow-xs hover:bg-blue-500"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Tambah Guru Pertama</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={onOpenImportGuru}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-600 text-white text-xs font-bold shadow-xs hover:bg-teal-500"
+                          >
+                            <UploadCloud className="w-3.5 h-3.5" />
+                            <span>Import Pukal Guru</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -546,6 +504,11 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
                             </span>
                           )}
                         </div>
+                        {guru.jawatan && guru.jawatan !== guru.peranan && (
+                          <span className="text-[10px] text-slate-500 block mt-0.5">
+                            {guru.jawatan}
+                          </span>
+                        )}
                       </td>
                       <td className="p-3.5">
                         <button
@@ -580,6 +543,12 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
                           {guru.rekodDirekodCount} Rekod
                         </span>
                       </td>
+                      <td className="p-3.5 text-center">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          <span>Disahkan Supabase</span>
+                        </span>
+                      </td>
                       <td className="p-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
@@ -592,9 +561,9 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleDeleteGuru(guru)}
+                            onClick={() => handleDeleteGuruClick(guru)}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                            title="Padam guru dari unit ini"
+                            title="Padam guru dari pangkalan data Supabase"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -619,7 +588,7 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
               <div className="flex items-center gap-2">
                 <GraduationCap className="w-5 h-5 text-teal-300" />
                 <h4 className="text-sm font-bold">
-                  {editingGuru ? 'Kemaskini Maklumat Guru' : 'Tambah Guru ke Unit Kokurikulum'}
+                  {editingGuru ? 'Kemaskini Guru di Supabase' : 'Tambah Guru ke Supabase Cloud'}
                 </h4>
               </div>
               <button
@@ -632,7 +601,7 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
             </div>
 
             {/* Form Body */}
-            <form onSubmit={handleSaveGuru} className="p-5 space-y-4 text-xs">
+            <form onSubmit={handleSaveGuruSubmit} className="p-5 space-y-4 text-xs">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Nama Penuh Guru <span className="text-red-500">*</span>
@@ -679,7 +648,7 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
                     />
                     <div>
                       <span className="font-bold text-slate-900 block">Ketua Guru Penyelaras / Penasihat</span>
-                      <span className="text-[10px] text-slate-500">Guru utama yang bertanggungjawab memimpin unit ini</span>
+                      <span className="text-[10px] text-slate-500">Guru utama yang memimpin unit kokurikulum ini</span>
                     </div>
                   </label>
 
@@ -693,9 +662,36 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
                     />
                     <div>
                       <span className="font-bold text-slate-900 block">Guru Penasihat</span>
-                      <span className="text-[10px] text-slate-500">Guru penasihat bersama yang membantu menguruskan perjumpaan</span>
+                      <span className="text-[10px] text-slate-500">Guru penasihat yang bersama-sama mengendalikan perjumpaan</span>
                     </div>
                   </label>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    No. Telefon (Pilihan)
+                  </label>
+                  <input
+                    type="text"
+                    value={inputPhone}
+                    onChange={(e) => setInputPhone(e.target.value)}
+                    placeholder="012-3456789"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Emel Rasmi / Delima (Pilihan)
+                  </label>
+                  <input
+                    type="email"
+                    value={inputEmel}
+                    onChange={(e) => setInputEmel(e.target.value)}
+                    placeholder="guru@moe-dl.edu.my"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
+                  />
                 </div>
               </div>
 
@@ -712,7 +708,7 @@ export const SenaraiGuruView: React.FC<SenaraiGuruViewProps> = ({
                   className="px-5 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold flex items-center gap-1.5 shadow-xs"
                 >
                   <Check className="w-4 h-4" />
-                  <span>Simpan Maklumat Guru</span>
+                  <span>Simpan ke Supabase</span>
                 </button>
               </div>
             </form>

@@ -60,10 +60,26 @@ CREATE TABLE IF NOT EXISTS records (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 4. Polisi Keselamatan (Row Level Security - RLS)
+-- 4. Jadual Senarai Guru Kokurikulum (Direktori & Penugasan Rasmi)
+CREATE TABLE IF NOT EXISTS teachers (
+  id TEXT PRIMARY KEY,
+  nama TEXT NOT NULL,
+  unit_id TEXT NOT NULL,
+  nama_unit TEXT NOT NULL,
+  kategori_unit TEXT,
+  peranan TEXT DEFAULT 'Guru Penasihat',
+  is_ketua BOOLEAN DEFAULT false,
+  jawatan TEXT,
+  no_telefon TEXT,
+  emel TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 5. Polisi Keselamatan (Row Level Security - RLS)
 ALTER TABLE units ENABLE ROW LEVEL SECURITY;
 ALTER TABLE students ENABLE ROW LEVEL SECURITY;
 ALTER TABLE records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE teachers ENABLE ROW LEVEL SECURITY;
 
 -- Benarkan capaian baca & tulis untuk guru-guru
 DROP POLICY IF EXISTS "Akses Penuh Units" ON units;
@@ -75,7 +91,10 @@ CREATE POLICY "Akses Penuh Students" ON students FOR ALL USING (true) WITH CHECK
 DROP POLICY IF EXISTS "Akses Penuh Records" ON records;
 CREATE POLICY "Akses Penuh Records" ON records FOR ALL USING (true) WITH CHECK (true);
 
--- 5. Bucket Storan Gambar (gambarpic) & Polisi Akses
+DROP POLICY IF EXISTS "Akses Penuh Teachers" ON teachers;
+CREATE POLICY "Akses Penuh Teachers" ON teachers FOR ALL USING (true) WITH CHECK (true);
+
+-- 6. Bucket Storan Gambar (gambarpic) & Polisi Akses
 INSERT INTO storage.buckets (id, name, public) 
 VALUES ('gambarpic', 'gambarpic', true) 
 ON CONFLICT (id) DO UPDATE SET public = true;

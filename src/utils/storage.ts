@@ -1,10 +1,11 @@
-import { UnitKokurikulum, RekodKokurikulum, StatusLaporan, MuridUnit } from '../types';
+import { UnitKokurikulum, RekodKokurikulum, StatusLaporan, MuridUnit, GuruKokurikulumItem } from '../types';
 import { INITIAL_UNITS, INITIAL_RECORDS, INITIAL_STUDENTS } from '../data/initialData';
 
 const STORAGE_KEYS = {
-  UNITS: 'mykokum_units_smk_madai_2026_v3',
+  UNITS: 'mykokum_units_smk_madai_2026_v5',
   RECORDS: 'mykokum_records_from_database_v4',
   STUDENTS: 'mykokum_students_smk_madai_2026_v3',
+  TEACHERS: 'mykokum_teachers_from_supabase_v2',
   INITIALIZED_V3: 'mykokum_init_smk_madai_v3',
 };
 
@@ -243,6 +244,55 @@ export const bulkUpdateRecordStatus = (ids: string[], newStatus: StatusLaporan):
     return rec;
   });
   saveStoredRecords(updated);
+  return updated;
+};
+
+// ==========================================
+// PENGURUSAN SENARAI GURU (DARI SUPABASE SAHAJA)
+// ==========================================
+export const getStoredTeachers = (): GuruKokurikulumItem[] => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.TEACHERS);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error('Ralat membaca senarai guru dari localStorage:', err);
+    return [];
+  }
+};
+
+export const saveStoredTeachers = (teachers: GuruKokurikulumItem[]): void => {
+  try {
+    localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(teachers));
+  } catch (err) {
+    console.error('Ralat menyimpan senarai guru ke localStorage:', err);
+  }
+};
+
+export const addStoredTeacher = (teacher: GuruKokurikulumItem): GuruKokurikulumItem[] => {
+  const current = getStoredTeachers();
+  const exists = current.some((t) => t.id === teacher.id || (t.nama === teacher.nama && t.unitId === teacher.unitId));
+  const updated = exists 
+    ? current.map((t) => (t.id === teacher.id || (t.nama === teacher.nama && t.unitId === teacher.unitId)) ? teacher : t)
+    : [teacher, ...current];
+  saveStoredTeachers(updated);
+  return updated;
+};
+
+export const updateStoredTeacher = (teacher: GuruKokurikulumItem): GuruKokurikulumItem[] => {
+  const current = getStoredTeachers();
+  const updated = current.map((t) => (t.id === teacher.id ? teacher : t));
+  saveStoredTeachers(updated);
+  return updated;
+};
+
+export const deleteStoredTeacher = (teacherId: string): GuruKokurikulumItem[] => {
+  const current = getStoredTeachers();
+  const updated = current.filter((t) => t.id !== teacherId);
+  saveStoredTeachers(updated);
   return updated;
 };
 

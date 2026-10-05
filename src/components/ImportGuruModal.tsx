@@ -512,7 +512,7 @@ export const ImportGuruModal: React.FC<ImportGuruModalProps> = ({
               className="px-5 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5"
             >
               <Check className="w-4 h-4" />
-              <span>Sahkan & Simpan Guru</span>
+              <span>Sahkan & Simpan Guru ke Supabase</span>
             </button>
           </div>
         </div>

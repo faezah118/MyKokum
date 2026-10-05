@@ -19,15 +19,18 @@ import {
   RekodKokurikulum, 
   ActiveTab, 
   StatusLaporan,
-  MuridUnit
+  MuridUnit,
+  GuruKokurikulumItem
 } from './types';
 import { 
   getStoredUnits, 
   getStoredRecords, 
   getStoredStudents,
+  getStoredTeachers,
   saveStoredRecords,
   saveStoredStudents,
   saveStoredUnits,
+  saveStoredTeachers,
   addStoredRecord, 
   updateStoredRecord, 
   deleteStoredRecord, 
@@ -42,17 +45,22 @@ import {
   fetchRecordsFromSupabase, 
   fetchStudentsFromSupabase, 
   fetchUnitsFromSupabase,
+  fetchTeachersFromSupabase,
   syncRecordToSupabase, 
   deleteRecordFromSupabase,
   syncStudentToSupabase,
   deleteStudentFromSupabase,
-  syncUnitToSupabase
+  syncUnitToSupabase,
+  syncTeacherToSupabase,
+  deleteTeacherFromSupabase,
+  batchSyncTeachersToSupabase
 } from './services/supabase';
 
 export default function App() {
   const [units, setUnits] = useState<UnitKokurikulum[]>([]);
   const [records, setRecords] = useState<RekodKokurikulum[]>([]);
   const [students, setStudents] = useState<MuridUnit[]>([]);
+  const [teachers, setTeachers] = useState<GuruKokurikulumItem[]>([]);
   const [activeTab, setActiveTab] = useState<ActiveTab>('laporan');
   const [userRole, setUserRole] = useState<'penyelaras' | 'setiausaha'>('penyelaras');
 
@@ -76,17 +84,20 @@ export default function App() {
     const loadedUnits = getStoredUnits();
     const loadedRecords = getStoredRecords();
     const loadedStudents = getStoredStudents();
+    const loadedTeachers = getStoredTeachers();
     setUnits(loadedUnits);
     setRecords(loadedRecords);
     setStudents(loadedStudents);
+    setTeachers(loadedTeachers);
 
     // Ambil data sahih dari Supabase Database (Hanya paparkan rekod dari database)
     const loadFromCloud = async () => {
       try {
-        const [cloudRecords, cloudStudents, cloudUnits] = await Promise.all([
+        const [cloudRecords, cloudStudents, cloudUnits, cloudTeachers] = await Promise.all([
           fetchRecordsFromSupabase(),
           fetchStudentsFromSupabase(),
           fetchUnitsFromSupabase(),
+          fetchTeachersFromSupabase(),
         ]);
 
         if (cloudUnits && cloudUnits.length >= 30) {
@@ -103,6 +114,27 @@ export default function App() {
         if (cloudStudents && cloudStudents.length > 0) {
           setStudents(cloudStudents);
           saveStoredStudents(cloudStudents);
+        }
+
+        // Hanya paparkan rekod senarai guru dari Supabase sahaja
+        if (cloudTeachers !== null) {
+          setTeachers(cloudTeachers);
+          saveStoredTeachers(cloudTeachers);
+
+          // Kemaskini maklumat penyelaras pada senarai unit jika ada padanan guru Supabase
+          setUnits((prevUnits) => {
+            const updated = prevUnits.map((u) => {
+              const ketua = cloudTeachers.find((t) => t.unitId === u.id && t.isKetua);
+              const unitTeachers = cloudTeachers.filter((t) => t.unitId === u.id).map((t) => t.nama);
+              return {
+                ...u,
+                guruPenyelaras: ketua ? ketua.nama : (u.guruPenyelaras && u.guruPenyelaras !== 'Belum Ditetapkan' ? u.guruPenyelaras : (unitTeachers[0] || 'Belum Ditetapkan')),
+                senaraiGuru: unitTeachers.length > 0 ? unitTeachers : (u.senaraiGuru || []),
+              };
+            });
+            saveStoredUnits(updated);
+            return updated;
+          });
         }
       } catch (err) {
         console.warn('Perhatian sambungan Supabase:', err);
@@ -232,25 +264,61 @@ export default function App() {
     showToast('Data contoh rasmi SMK Madai 2026 berjaya dimuatkan semula.');
   };
 
-  // Handle Import Guru
+  // Handle Import Guru - Segerak ke Supabase
   const handleImportGuru = async (
     assignments: ParsedGuruRow[],
     mode: 'replace' | 'append'
   ) => {
-    let updatedUnits = [...units];
+    const newGuruItems: GuruKokurikulumItem[] = assignments.map((a, idx) => {
+      const targetUnit = units.find((u) => u.id === a.unitIdMatched);
+      const isKetua = a.peranan === 'Ketua Penyelaras / Penasihat';
+      return {
+        id: `guru_${a.unitIdMatched}_${a.namaGuru.toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_')}_${Date.now()}_${idx}`,
+        nama: a.namaGuru,
+        unitId: a.unitIdMatched,
+        namaUnit: targetUnit?.nama || a.unitDetected || 'Unit Kokurikulum',
+        kategoriUnit: targetUnit?.kategori || 'Kelab & Persatuan',
+        peranan: a.peranan,
+        isKetua: isKetua,
+        rekodDirekodCount: 0,
+        jawatan: isKetua ? `Guru Penyelaras ${targetUnit?.nama || ''}` : 'Guru Penasihat',
+        noTelefon: a.noTelefon,
+        emel: a.emel,
+        sumber: 'supabase',
+      };
+    });
 
+    let updatedTeachers = [...teachers];
+    if (mode === 'replace') {
+      const affectedUnitIds = new Set(assignments.map((a) => a.unitIdMatched));
+      updatedTeachers = [
+        ...updatedTeachers.filter((t) => !affectedUnitIds.has(t.unitId)),
+        ...newGuruItems,
+      ];
+    } else {
+      newGuruItems.forEach((ng) => {
+        const idx = updatedTeachers.findIndex((t) => t.nama.toLowerCase() === ng.nama.toLowerCase() && t.unitId === ng.unitId);
+        if (idx !== -1) {
+          updatedTeachers[idx] = ng;
+        } else {
+          updatedTeachers.push(ng);
+        }
+      });
+    }
+
+    setTeachers(updatedTeachers);
+    saveStoredTeachers(updatedTeachers);
+
+    // Kemaskini units
+    let updatedUnits = [...units];
     assignments.forEach((a) => {
       const unitIndex = updatedUnits.findIndex((u) => u.id === a.unitIdMatched);
       if (unitIndex !== -1) {
         const targetUnit = updatedUnits[unitIndex];
-        const currentSenarai = targetUnit.senaraiGuru || (targetUnit.guruPenyelaras ? [targetUnit.guruPenyelaras] : []);
-        
-        let newSenarai: string[];
-        if (mode === 'replace') {
-          newSenarai = [a.namaGuru];
-        } else {
-          newSenarai = Array.from(new Set([...currentSenarai, a.namaGuru]));
-        }
+        const currentSenarai = targetUnit.senaraiGuru || [];
+        const newSenarai = mode === 'replace'
+          ? [a.namaGuru]
+          : Array.from(new Set([...currentSenarai, a.namaGuru]));
 
         updatedUnits[unitIndex] = {
           ...targetUnit,
@@ -265,16 +333,93 @@ export default function App() {
     setUnits(updatedUnits);
     saveStoredUnits(updatedUnits);
 
-    // Sync to Supabase in background
-    try {
-      for (const u of updatedUnits) {
-        await syncUnitToSupabase(u);
-      }
-    } catch (err) {
-      console.warn('Sync updated units error:', err);
-    }
+    showToast(`${assignments.length} Guru berjaya diimport dan disegerakkan ke Supabase Cloud.`);
+    setShowImportGuru(false);
 
-    showToast(`${assignments.length} orang guru berjaya diimport dan ditugaskan!`);
+    // Muat naik pukal ke Supabase
+    try {
+      await batchSyncTeachersToSupabase(newGuruItems);
+    } catch (err) {
+      console.warn('Ralat segerak pukal guru ke Supabase:', err);
+    }
+  };
+
+  // Handle Save Guru (Tambah atau Kemas Kini) - Terus ke Supabase
+  const handleSaveGuru = async (guruToSave: GuruKokurikulumItem) => {
+    const exists = teachers.some((t) => t.id === guruToSave.id);
+    const updatedTeachers = exists
+      ? teachers.map((t) => (t.id === guruToSave.id ? guruToSave : t))
+      : [guruToSave, ...teachers];
+    setTeachers(updatedTeachers);
+    saveStoredTeachers(updatedTeachers);
+
+    // Kemaskini unit berkaitan
+    setUnits((prevUnits) => {
+      const updated = prevUnits.map((u) => {
+        if (u.id === guruToSave.unitId) {
+          const currentList = u.senaraiGuru || [];
+          const newList = Array.from(new Set([...currentList, guruToSave.nama]));
+          return {
+            ...u,
+            guruPenyelaras: guruToSave.isKetua ? guruToSave.nama : u.guruPenyelaras,
+            senaraiGuru: newList,
+          };
+        }
+        return u;
+      });
+      saveStoredUnits(updated);
+      return updated;
+    });
+
+    showToast(`Maklumat guru "${guruToSave.nama}" berjaya disimpan ke Supabase.`);
+
+    try {
+      await syncTeacherToSupabase(guruToSave);
+    } catch (err) {
+      console.warn('Ralat segerak guru ke Supabase:', err);
+    }
+  };
+
+  // Handle Delete Guru - Padam dari Supabase
+  const handleDeleteGuru = async (guruToDelete: GuruKokurikulumItem) => {
+    const updatedTeachers = teachers.filter((t) => t.id !== guruToDelete.id);
+    setTeachers(updatedTeachers);
+    saveStoredTeachers(updatedTeachers);
+
+    // Kemaskini unit berkaitan
+    setUnits((prevUnits) => {
+      const updated = prevUnits.map((u) => {
+        if (u.id === guruToDelete.unitId) {
+          const newList = (u.senaraiGuru || []).filter((g) => g !== guruToDelete.nama);
+          return {
+            ...u,
+            guruPenyelaras: u.guruPenyelaras === guruToDelete.nama ? (newList[0] || 'Belum Ditetapkan') : u.guruPenyelaras,
+            senaraiGuru: newList,
+          };
+        }
+        return u;
+      });
+      saveStoredUnits(updated);
+      return updated;
+    });
+
+    showToast(`Rekod guru "${guruToDelete.nama}" telah dipadam daripada Supabase.`);
+
+    try {
+      await deleteTeacherFromSupabase(guruToDelete);
+    } catch (err) {
+      console.warn('Ralat memadam guru di Supabase:', err);
+    }
+  };
+
+  // Handle Refresh Guru from Supabase
+  const handleRefreshGuruFromSupabase = async () => {
+    const cloudTeachers = await fetchTeachersFromSupabase();
+    if (cloudTeachers !== null) {
+      setTeachers(cloudTeachers);
+      saveStoredTeachers(cloudTeachers);
+      showToast(`${cloudTeachers.length} rekod guru berjaya disegerakkan daripada Supabase.`);
+    }
   };
 
   // Handle Update Single Unit
@@ -398,17 +543,21 @@ export default function App() {
           />
         )}
 
-        {/* Tab 4: Senarai Guru Kokurikulum */}
+        {/* Tab 4: Senarai Guru Kokurikulum (Supabase Sahaja) */}
         {activeTab === 'guru' && (
           <SenaraiGuruView
             units={units}
             records={records}
+            teachers={teachers}
             onOpenImportGuru={() => setShowImportGuru(true)}
             onSelectUnit={(unitId) => {
               setTargetUnitFilter(unitId);
               setActiveTab('senarai');
             }}
             onUpdateUnit={handleUpdateUnit}
+            onSaveGuru={handleSaveGuru}
+            onDeleteGuru={handleDeleteGuru}
+            onRefreshFromSupabase={handleRefreshGuruFromSupabase}
           />
         )}
 

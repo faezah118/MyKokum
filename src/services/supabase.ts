@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { RekodKokurikulum, UnitKokurikulum, MuridUnit } from '../types';
+import { RekodKokurikulum, UnitKokurikulum, MuridUnit, GuruKokurikulumItem } from '../types';
 
 // Konfigurasi Supabase projek faezah118 (MyKokum SMK Madai)
 const DEFAULT_SUPABASE_URL = 'https://tyidfdplrirkfpjmnjoz.supabase.co';
@@ -248,6 +248,219 @@ export const syncUnitToSupabase = async (unit: UnitKokurikulum): Promise<boolean
   } catch (err) {
     console.error('Ralat sync unit ke Supabase:', err);
     return false;
+  }
+};
+
+// ==========================================
+// PENGURUSAN SENARAI GURU (SUPABASE SAHAJA)
+// ==========================================
+
+export const fetchTeachersFromSupabase = async (): Promise<GuruKokurikulumItem[] | null> => {
+  try {
+    const teacherMap = new Map<string, GuruKokurikulumItem>();
+
+    // 1. Cuba dapatkan daripada jadual 'teachers' jika wujud di Supabase
+    try {
+      const { data: tData, error: tErr } = await supabase.from('teachers').select('*');
+      if (!tErr && Array.isArray(tData) && tData.length > 0) {
+        tData.forEach((item) => {
+          const rawName = (item.nama || '').trim();
+          if (!rawName) return;
+          const uId = item.unit_id || item.unitId || '';
+          const key = `${uId}_${rawName.toLowerCase()}`;
+          teacherMap.set(key, {
+            id: item.id || `guru_${uId}_${rawName.toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_')}`,
+            nama: rawName,
+            unitId: uId,
+            namaUnit: item.nama_unit || item.namaUnit || '',
+            kategoriUnit: item.kategori_unit || item.kategoriUnit || 'Kelab & Persatuan',
+            peranan: item.peranan || (item.is_ketua ? 'Ketua Penyelaras / Penasihat' : 'Guru Penasihat'),
+            isKetua: Boolean(item.is_ketua ?? (item.peranan === 'Ketua Penyelaras / Penasihat')),
+            rekodDirekodCount: item.rekod_count || 0,
+            jawatan: item.jawatan || item.peranan || 'Guru Penasihat',
+            noTelefon: item.no_telefon || '',
+            emel: item.emel || '',
+            sumber: 'supabase',
+            tarikhDidaftar: item.created_at || '',
+          });
+        });
+      }
+    } catch {
+      // Abaikan jika jadual teachers belum dicipta dalam schema Supabase
+    }
+
+    // 2. Dapatkan rekod guru sahih daripada rekod aktiviti di Supabase (nama_pelapor & jawatan_pelapor)
+    const { data: recData, error: rErr } = await supabase
+      .from('records')
+      .select('unit_id, nama_unit, kategori_unit, nama_pelapor, jawatan_pelapor, tarikh');
+
+    if (!rErr && Array.isArray(recData)) {
+      recData.forEach((r) => {
+        if (r.nama_pelapor && r.nama_pelapor.trim() !== '') {
+          const rawName = r.nama_pelapor.trim();
+          const unitId = r.unit_id || 'unit-am';
+          const key = `${unitId}_${rawName.toLowerCase()}`;
+          const existing = teacherMap.get(key);
+          const currentCount = existing ? existing.rekodDirekodCount + 1 : 1;
+          const isKetua = Boolean(
+            (r.jawatan_pelapor && (
+              r.jawatan_pelapor.toLowerCase().includes('penyelaras') ||
+              r.jawatan_pelapor.toLowerCase().includes('ketua')
+            )) || existing?.isKetua
+          );
+
+          teacherMap.set(key, {
+            id: existing ? existing.id : `guru_${unitId}_${rawName.toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_')}`,
+            nama: rawName,
+            unitId: unitId,
+            namaUnit: r.nama_unit || existing?.namaUnit || '',
+            kategoriUnit: r.kategori_unit || existing?.kategoriUnit || 'Kelab & Persatuan',
+            peranan: isKetua ? 'Ketua Penyelaras / Penasihat' : 'Guru Penasihat',
+            isKetua: isKetua,
+            rekodDirekodCount: currentCount,
+            jawatan: r.jawatan_pelapor || existing?.jawatan || (isKetua ? 'Guru Penyelaras Unit' : 'Guru Penasihat'),
+            sumber: 'supabase',
+          });
+        }
+      });
+    }
+
+    // 3. Dapatkan guru daripada jadual units di Supabase jika wujud guru_penyelaras
+    const { data: uData, error: uErr } = await supabase
+      .from('units')
+      .select('id, nama, kategori, guru_penyelaras');
+
+    if (!uErr && Array.isArray(uData)) {
+      uData.forEach((u) => {
+        if (u.guru_penyelaras && u.guru_penyelaras.trim() !== '' && u.guru_penyelaras !== 'Belum Ditetapkan') {
+          const rawName = u.guru_penyelaras.trim();
+          const key = `${u.id}_${rawName.toLowerCase()}`;
+          if (!teacherMap.has(key)) {
+            teacherMap.set(key, {
+              id: `guru_${u.id}_${rawName.toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_')}`,
+              nama: rawName,
+              unitId: u.id,
+              namaUnit: u.nama,
+              kategoriUnit: u.kategori,
+              peranan: 'Ketua Penyelaras / Penasihat',
+              isKetua: true,
+              rekodDirekodCount: 0,
+              jawatan: `Guru Penyelaras ${u.nama}`,
+              sumber: 'supabase',
+            });
+          }
+        }
+      });
+    }
+
+    // Mengembalikan senarai guru yang wujud dalam pangkalan data Supabase sahaja
+    return Array.from(teacherMap.values());
+  } catch (err) {
+    console.error('Ralat fetching senarai guru dari Supabase:', err);
+    return null;
+  }
+};
+
+export const syncTeacherToSupabase = async (teacher: GuruKokurikulumItem): Promise<boolean> => {
+  try {
+    let success = false;
+
+    // 1. Cuba simpan ke jadual 'teachers' jika ada
+    try {
+      const payload = {
+        id: teacher.id,
+        nama: teacher.nama,
+        unit_id: teacher.unitId,
+        nama_unit: teacher.namaUnit,
+        kategori_unit: teacher.kategoriUnit,
+        peranan: teacher.peranan,
+        is_ketua: teacher.isKetua,
+        jawatan: teacher.jawatan || teacher.peranan,
+        no_telefon: teacher.noTelefon || null,
+        emel: teacher.emel || null,
+      };
+      const { error: tErr } = await supabase.from('teachers').upsert(payload);
+      if (!tErr) success = true;
+    } catch {
+      // Abaikan jika tiada jadual teachers
+    }
+
+    // 2. Kemaskini guru_penyelaras pada jadual 'units' jika merupakan Ketua
+    if (teacher.isKetua && teacher.unitId) {
+      const { error: uErr } = await supabase
+        .from('units')
+        .update({ guru_penyelaras: teacher.nama })
+        .eq('id', teacher.unitId);
+      if (!uErr) success = true;
+    }
+
+    return success;
+  } catch (err) {
+    console.error('Ralat segerak guru ke Supabase:', err);
+    return false;
+  }
+};
+
+export const deleteTeacherFromSupabase = async (teacher: GuruKokurikulumItem): Promise<boolean> => {
+  try {
+    try {
+      await supabase.from('teachers').delete().eq('id', teacher.id);
+    } catch {
+      // Abaikan jika jadual teachers tiada
+    }
+
+    if (teacher.isKetua && teacher.unitId) {
+      await supabase
+        .from('units')
+        .update({ guru_penyelaras: 'Belum Ditetapkan' })
+        .eq('id', teacher.unitId);
+    }
+    return true;
+  } catch (err) {
+    console.error('Ralat padam guru dari Supabase:', err);
+    return false;
+  }
+};
+
+export const batchSyncTeachersToSupabase = async (
+  teachers: GuruKokurikulumItem[]
+): Promise<{ success: boolean; count: number }> => {
+  if (!teachers || teachers.length === 0) return { success: true, count: 0 };
+  try {
+    let count = 0;
+    try {
+      const payload = teachers.map((t) => ({
+        id: t.id,
+        nama: t.nama,
+        unit_id: t.unitId,
+        nama_unit: t.namaUnit,
+        kategori_unit: t.kategoriUnit,
+        peranan: t.peranan,
+        is_ketua: t.isKetua,
+        jawatan: t.jawatan || t.peranan,
+        no_telefon: t.noTelefon || null,
+        emel: t.emel || null,
+      }));
+      const { error } = await supabase.from('teachers').upsert(payload);
+      if (!error) count = teachers.length;
+    } catch {
+      // Abaikan jika jadual teachers tiada
+    }
+
+    // Kemaskini ketua bagi setiap unit
+    for (const t of teachers) {
+      if (t.isKetua && t.unitId) {
+        await supabase
+          .from('units')
+          .update({ guru_penyelaras: t.nama })
+          .eq('id', t.unitId);
+        count++;
+      }
+    }
+    return { success: true, count };
+  } catch (err) {
+    console.error('Ralat muat naik pukal guru ke Supabase:', err);
+    return { success: false, count: 0 };
   }
 };
 
