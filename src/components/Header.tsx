@@ -1,5 +1,5 @@
 import React from 'react';
-import { Award, BookOpen, Layers, ShieldCheck, FileText, UserPlus, School } from 'lucide-react';
+import { Award, BookOpen, Layers, ShieldCheck, FileText, UserPlus, GraduationCap, School } from 'lucide-react';
 import { RekodKokurikulum, UnitKokurikulum } from '../types';
 
 interface HeaderProps {
@@ -8,6 +8,7 @@ interface HeaderProps {
   onOpenBukuLaporan: () => void;
   onResetData?: () => void;
   onOpenImportMurid?: () => void;
+  onOpenImportGuru?: () => void;
   onOpenSupabaseModal?: () => void;
   userRole: 'penyelaras' | 'setiausaha';
   setUserRole: (role: 'penyelaras' | 'setiausaha') => void;
@@ -18,6 +19,7 @@ export const Header: React.FC<HeaderProps> = ({
   units,
   onOpenBukuLaporan,
   onOpenImportMurid,
+  onOpenImportGuru,
   userRole,
   setUserRole,
 }) => {
@@ -115,6 +117,20 @@ export const Header: React.FC<HeaderProps> = ({
                 <UserPlus className="w-3.5 h-3.5 text-emerald-700" />
                 <span className="hidden sm:inline">Import Murid</span>
                 <span className="sm:hidden">Murid</span>
+              </button>
+            )}
+
+            {/* Import Guru Button */}
+            {onOpenImportGuru && (
+              <button
+                type="button"
+                onClick={onOpenImportGuru}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-800 text-xs font-semibold border border-teal-200 transition-colors"
+                title="Import Senarai Guru Penasihat & Penyelaras Kokurikulum"
+              >
+                <GraduationCap className="w-3.5 h-3.5 text-teal-700" />
+                <span className="hidden sm:inline">Import Guru</span>
+                <span className="sm:hidden">Guru</span>
               </button>
             )}
 

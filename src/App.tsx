@@ -7,9 +7,11 @@ import { LaporanView } from './components/LaporanView';
 import { SenaraiUnitView } from './components/SenaraiUnitView';
 import { CarianView } from './components/CarianView';
 import { AnalisisDashboard } from './components/AnalisisDashboard';
+import { TakwimView } from './components/TakwimView';
 import { OPRModal } from './components/OPRModal';
 import { BukuLaporanModal } from './components/BukuLaporanModal';
 import { ImportMuridModal } from './components/ImportMuridModal';
+import { ImportGuruModal, ParsedGuruRow } from './components/ImportGuruModal';
 import { SenaraiMuridUnitModal } from './components/SenaraiMuridUnitModal';
 import { 
   UnitKokurikulum, 
@@ -58,8 +60,9 @@ export default function App() {
   const [activeOPRRecord, setActiveOPRRecord] = useState<RekodKokurikulum | null>(null);
   const [showBukuLaporan, setShowBukuLaporan] = useState<boolean>(false);
   
-  // Import & Senarai Murid Modals
+  // Import & Senarai Murid / Guru Modals
   const [showImportMurid, setShowImportMurid] = useState<boolean>(false);
+  const [showImportGuru, setShowImportGuru] = useState<boolean>(false);
   const [targetUnitForImport, setTargetUnitForImport] = useState<string | undefined>(undefined);
   const [activeUnitForSenaraiMurid, setActiveUnitForSenaraiMurid] = useState<UnitKokurikulum | null>(null);
 
@@ -228,6 +231,51 @@ export default function App() {
     showToast('Data contoh rasmi SMK Madai 2026 berjaya dimuatkan semula.');
   };
 
+  // Handle Import Guru
+  const handleImportGuru = async (
+    assignments: ParsedGuruRow[],
+    mode: 'replace' | 'append'
+  ) => {
+    let updatedUnits = [...units];
+
+    assignments.forEach((a) => {
+      const unitIndex = updatedUnits.findIndex((u) => u.id === a.unitIdMatched);
+      if (unitIndex !== -1) {
+        const targetUnit = updatedUnits[unitIndex];
+        const currentSenarai = targetUnit.senaraiGuru || (targetUnit.guruPenyelaras ? [targetUnit.guruPenyelaras] : []);
+        
+        let newSenarai: string[];
+        if (mode === 'replace') {
+          newSenarai = [a.namaGuru];
+        } else {
+          newSenarai = Array.from(new Set([...currentSenarai, a.namaGuru]));
+        }
+
+        updatedUnits[unitIndex] = {
+          ...targetUnit,
+          guruPenyelaras: (a.peranan === 'Ketua Penyelaras / Penasihat' || mode === 'replace')
+            ? a.namaGuru
+            : targetUnit.guruPenyelaras,
+          senaraiGuru: newSenarai,
+        };
+      }
+    });
+
+    setUnits(updatedUnits);
+    saveStoredUnits(updatedUnits);
+
+    // Sync to Supabase in background
+    try {
+      for (const u of updatedUnits) {
+        await syncUnitToSupabase(u);
+      }
+    } catch (err) {
+      console.warn('Sync updated units error:', err);
+    }
+
+    showToast(`${assignments.length} orang guru berjaya diimport dan ditugaskan!`);
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800">
       
@@ -248,6 +296,7 @@ export default function App() {
           setTargetUnitForImport(undefined);
           setShowImportMurid(true);
         }}
+        onOpenImportGuru={() => setShowImportGuru(true)}
         userRole={userRole}
         setUserRole={setUserRole}
       />
@@ -333,18 +382,7 @@ export default function App() {
           />
         )}
 
-        {/* Tab 4: Carian Pantas Rekod */}
-        {activeTab === 'carian' && (
-          <CarianView
-            records={records}
-            units={units}
-            onOpenOPR={(record) => setActiveOPRRecord(record)}
-            onEditRecord={handleStartEdit}
-            onDeleteRecord={handleDeleteRecord}
-          />
-        )}
-
-        {/* Tab 5: Analisis SU Kokum */}
+        {/* Tab 4: Analisis SU Kokum */}
         {activeTab === 'analisis' && (
           <AnalisisDashboard
             records={records}
@@ -353,6 +391,31 @@ export default function App() {
             onSelectUnit={(unitId) => {
               setActiveTab('senarai');
             }}
+          />
+        )}
+
+        {/* Tab 5: Takwim Kokurikulum (Carta Gantt) */}
+        {activeTab === 'takwim' && (
+          <TakwimView
+            records={records}
+            units={units}
+            onNavigateTambah={(unitId) => {
+              setTargetUnitForAdd(unitId);
+              setEditingRecord(null);
+              setActiveTab('tambah');
+            }}
+            onOpenOPR={(record) => setActiveOPRRecord(record)}
+          />
+        )}
+
+        {/* Tab 6: Carian Pantas Rekod */}
+        {activeTab === 'carian' && (
+          <CarianView
+            records={records}
+            units={units}
+            onOpenOPR={(record) => setActiveOPRRecord(record)}
+            onEditRecord={handleStartEdit}
+            onDeleteRecord={handleDeleteRecord}
           />
         )}
 
@@ -388,7 +451,16 @@ export default function App() {
         />
       )}
 
-      {/* MODAL 4: Paparan & Pengurusan Senarai Murid Unit */}
+      {/* MODAL 4: Import Senarai Guru Penasihat Kokurikulum */}
+      {showImportGuru && (
+        <ImportGuruModal
+          units={units}
+          onClose={() => setShowImportGuru(false)}
+          onImportGuru={handleImportGuru}
+        />
+      )}
+
+      {/* MODAL 5: Paparan & Pengurusan Senarai Murid Unit */}
       {activeUnitForSenaraiMurid && (
         <SenaraiMuridUnitModal
           unit={activeUnitForSenaraiMurid}

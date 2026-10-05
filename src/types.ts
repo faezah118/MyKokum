@@ -40,6 +40,7 @@ export interface UnitKokurikulum {
   kodUnit: string;
   warnaTema: string;
   sasaranPerjumpaan: number; // Standard sekolah: 12 kali setahun
+  senaraiGuru?: string[]; // Senarai guru penasihat & penyelaras
 }
 
 export interface GambarAktiviti {
@@ -80,4 +81,4 @@ export interface RekodKokurikulum {
   dikemaskiniPada: string;
 }
 
-export type ActiveTab = 'tambah' | 'laporan' | 'senarai' | 'carian' | 'analisis';
+export type ActiveTab = 'tambah' | 'laporan' | 'senarai' | 'analisis' | 'takwim' | 'carian';
